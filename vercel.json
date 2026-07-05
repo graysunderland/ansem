@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/drops.js": { "maxDuration": 60 },
+    "api/wallet.js": { "maxDuration": 10 }
+  },
+  "crons": [
+    { "path": "/api/drops", "schedule": "0 3 * * *" }
+  ]
+}

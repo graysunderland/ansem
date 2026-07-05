@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>$ANSEM WILL FLIP $PUMP</title>
+<meta name="description" content="$ANSEM, live. The price, the wallet, every airdrop, and the flip.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Spline+Sans+Mono:wght@300..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0A0A;
+  --ink:#F4F4F1;
+  --mute:#63635C;
+  --hair:#1D1D1B;
+  --up:#19C964;
+  --down:#FF3B30;
+  --display:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --mono:'Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --pad:clamp(18px,3vw,40px);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:var(--mono);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;overscroll-behavior:none;
+}
+::selection{background:var(--ink);color:var(--bg)}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+p,li{text-wrap:pretty}
+h1,h2,.pull{text-wrap:balance}
+
+.app{height:100dvh;display:flex;flex-direction:column}
+
+/* ---------- top bar ---------- */
+.bar{display:flex;align-items:stretch;border-bottom:1px solid var(--hair);height:56px;flex:none}
+.mark{
+  font-family:var(--display);font-weight:900;font-stretch:70%;
+  font-size:22px;letter-spacing:.02em;
+  display:flex;align-items:center;padding:0 22px;
+  border-right:1px solid var(--hair);white-space:nowrap;
+}
+.tabs{display:flex;flex:1}
+.tab{
+  font-family:var(--display);font-weight:700;font-stretch:78%;
+  font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--mute);padding:0 clamp(14px,2.6vw,30px);
+  border-right:1px solid var(--hair);
+  display:flex;align-items:center;justify-content:center;
+  transition:color .12s;position:relative;
+}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink)}
+.tab.on::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink)}
+.bar-right{margin-left:auto;display:flex;align-items:stretch}
+.bar-live{
+  display:flex;align-items:center;gap:12px;
+  padding:0 20px;font-size:12px;font-variant-numeric:tabular-nums;
+  border-left:1px solid var(--hair);
+}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--up);animation:pulse 2s ease-in-out infinite;flex:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
+.bar-live .d.up{color:var(--up)} .bar-live .d.down{color:var(--down)}
+.xlink{
+  display:flex;align-items:center;justify-content:center;
+  width:56px;border-left:1px solid var(--hair);color:var(--mute);transition:color .12s;
+}
+.xlink:hover{color:var(--ink)}
+.xlink svg{width:17px;height:17px;fill:currentColor}
+
+/* ---------- panes ---------- */
+.pane{flex:1;min-height:0;display:none;flex-direction:column}
+.pane.on{display:flex}
+
+/* ---------- PRICE ---------- */
+.price-top{padding:clamp(18px,3vh,36px) var(--pad) 0;flex:none}
+.big-price{
+  font-family:var(--display);font-weight:900;font-stretch:66%;
+  font-size:clamp(64px,14vw,176px);line-height:.9;letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums;
+  display:flex;align-items:baseline;gap:clamp(12px,2.4vw,32px);flex-wrap:wrap;
+  transition:color .25s;
+}
+.big-price.tick-up{color:var(--up)} .big-price.tick-down{color:var(--down)}
+.big-delta{
+  font-family:var(--display);font-weight:800;font-stretch:76%;
+  font-size:clamp(20px,3.2vw,42px);font-variant-numeric:tabular-nums;
+}
+.big-delta.up{color:var(--up)} .big-delta.down{color:var(--down)}
+.stat-row{
+  display:flex;gap:clamp(16px,3vw,48px);flex-wrap:wrap;
+  padding:16px 0 0;font-size:12px;color:var(--mute);
+  font-variant-numeric:tabular-nums;letter-spacing:.03em;
+}
+.stat-row b{color:var(--ink);font-weight:500;margin-left:8px}
+.ca{cursor:pointer;color:var(--mute);transition:color .12s;letter-spacing:.02em;background:none;border:none;font:inherit;padding:0}
+.ca:hover{color:var(--ink)}
+.ca .ok{color:var(--up)}
+
+/* flip */
+.flip{
+  margin:clamp(14px,2.4vh,28px) var(--pad) 0;
+  border:1px solid var(--hair);padding:15px 18px 16px;flex:none;
+}
+.flip-line{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.flip-title{
+  font-family:var(--display);font-weight:900;font-stretch:68%;
+  font-size:clamp(17px,2.6vw,28px);letter-spacing:.04em;text-transform:uppercase;
+}
+.flip-pct{
+  font-family:var(--display);font-weight:900;font-stretch:68%;
+  font-size:clamp(17px,2.6vw,28px);font-variant-numeric:tabular-nums;
+}
+.flip-bar{height:5px;background:var(--hair);margin-top:13px;position:relative;overflow:hidden}
+.flip-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ink);width:0%;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+.flip-sub{
+  display:flex;justify-content:space-between;gap:12px;margin-top:10px;
+  font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums;letter-spacing:.04em;
+}
+.flip-sub b{color:var(--ink);font-weight:500}
+.chart{flex:1;min-height:0;margin:clamp(14px,2.4vh,26px) var(--pad) clamp(14px,2.4vh,26px);border:1px solid var(--hair)}
+.chart iframe{width:100%;height:100%;border:0;display:block}
+
+/* ---------- AIRDROPS ---------- */
+.drops{padding:0 var(--pad);display:flex;flex-direction:column;min-height:0;flex:1}
+.drop-stats{display:flex;gap:clamp(22px,5vw,76px);flex-wrap:wrap;padding:clamp(18px,3vh,32px) 0 0;flex:none}
+.dstat .v{
+  font-family:var(--display);font-weight:900;font-stretch:66%;
+  font-size:clamp(38px,6.6vw,84px);line-height:.95;
+  font-variant-numeric:tabular-nums;
+}
+.dstat .k{font-size:10px;color:var(--mute);letter-spacing:.18em;text-transform:uppercase;margin-top:8px;display:block}
+.keyrow{display:none;gap:12px;align-items:center;flex-wrap:wrap;flex:none;padding:clamp(14px,2.4vh,24px) 0 4px}
+.keyrow.show{display:flex}
+.sync{margin-left:auto;font-size:10px;color:var(--mute);letter-spacing:.1em;text-transform:uppercase;font-variant-numeric:tabular-nums}
+.keyrow input{
+  flex:1;min-width:170px;background:none;border:none;border-bottom:1px solid var(--hair);
+  padding:9px 0;font-size:12px;outline:none;color:var(--ink);
+}
+.keyrow input:focus{border-color:var(--ink)}
+.btn{
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  border:1px solid var(--ink);padding:11px 20px;transition:background .12s,color .12s;
+}
+.btn:hover{background:var(--ink);color:var(--bg)}
+.btn[disabled]{opacity:.3;cursor:default}
+.btn[disabled]:hover{background:none;color:var(--ink)}
+.prog{
+  display:none;align-items:center;gap:14px;font-size:11px;color:var(--mute);
+  padding:8px 0 2px;flex:none;letter-spacing:.03em;font-variant-numeric:tabular-nums;
+}
+.prog.show{display:flex}
+.pbar{flex:1;max-width:280px;height:1px;background:var(--hair);position:relative}
+.pbar i{position:absolute;left:0;top:-1px;height:3px;background:var(--ink);width:0%;transition:width .4s}
+.drop-ctl{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:10px 0 14px;flex:none}
+.search{
+  flex:1;min-width:200px;display:flex;align-items:center;gap:12px;
+  border-bottom:1px solid var(--ink);padding:9px 0;
+}
+.search input{flex:1;border:none;background:none;outline:none;font-size:14px;letter-spacing:.02em}
+.search input::placeholder{color:var(--mute)}
+.kbd{font-size:10px;color:var(--mute);border:1px solid var(--hair);border-radius:3px;padding:1px 6px}
+.ctl{
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);
+  padding:9px 0;border-bottom:1px solid transparent;transition:color .12s;min-height:40px;
+}
+.ctl:hover,.ctl.on{color:var(--ink)}
+.ctl.on{border-color:var(--ink)}
+.tbl-wrap{flex:1;min-height:0;overflow-y:auto;border-top:1px solid var(--ink);margin-bottom:clamp(12px,2vh,22px)}
+.tbl-wrap::-webkit-scrollbar{width:8px}
+.tbl-wrap::-webkit-scrollbar-thumb{background:var(--hair)}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th{
+  position:sticky;top:0;background:var(--bg);text-align:left;font-weight:400;
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);
+  padding:13px 14px 11px 0;border-bottom:1px solid var(--hair);z-index:1;
+}
+th:last-child,td:last-child{text-align:right;padding-right:2px}
+td{padding:13px 14px 13px 0;border-bottom:1px solid var(--hair);white-space:nowrap}
+tr.row:hover td{background:#111110}
+td a{border-bottom:1px solid var(--hair);transition:border-color .12s,color .12s;padding:4px 0}
+td a:hover{border-color:var(--ink)}
+td .usd{color:var(--mute);font-size:12px;margin-left:10px}
+td .tx{color:var(--mute);font-size:12px}
+.empty{padding:56px 0;text-align:center;color:var(--mute);font-size:12px;letter-spacing:.04em;line-height:2.2}
+.more{padding:14px 0 6px;text-align:center}
+
+/* ---------- WALLET ---------- */
+.wallet{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.wq{
+  border-right:1px solid var(--hair);border-bottom:1px solid var(--hair);
+  display:flex;flex-direction:column;justify-content:center;
+  padding:clamp(18px,4vw,56px);min-height:0;overflow:hidden;
+}
+.wq:nth-child(2n){border-right:none}
+.wq:nth-child(n+3){border-bottom:none}
+.wq .v{
+  font-family:var(--display);font-weight:900;font-stretch:66%;
+  font-size:clamp(42px,7.4vw,116px);line-height:.92;
+  font-variant-numeric:tabular-nums;
+}
+.wq .k{font-size:11px;color:var(--mute);letter-spacing:.18em;text-transform:uppercase;margin-top:13px}
+.wq .s{font-size:12px;color:var(--mute);margin-top:6px;font-variant-numeric:tabular-nums}
+.wq a{border-bottom:1px solid var(--hair)}
+.wq a:hover{border-color:var(--ink)}
+
+/* ---------- LORE ---------- */
+.lore{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.lore::-webkit-scrollbar{width:8px}
+.lore::-webkit-scrollbar-thumb{background:var(--hair)}
+.lore-in{max-width:860px;margin:0 auto;padding:clamp(38px,7vh,92px) clamp(22px,4vw,40px) 90px}
+.lore h1{
+  font-family:var(--display);font-weight:900;font-stretch:62%;
+  font-size:clamp(58px,12vw,148px);line-height:.86;text-transform:uppercase;
+}
+.lore .yr{
+  font-size:12px;color:var(--mute);letter-spacing:.26em;
+  margin:clamp(40px,6.5vh,68px) 0 16px;display:block;
+}
+.lore p{
+  font-family:var(--display);font-weight:500;font-stretch:88%;
+  font-size:clamp(19px,2.4vw,26px);line-height:1.42;
+  margin-bottom:1.05em;max-width:34em;
+}
+.lore p b{font-weight:800}
+.lore .pull{
+  font-family:var(--display);font-weight:900;font-stretch:66%;
+  font-size:clamp(34px,5.8vw,66px);line-height:1;text-transform:uppercase;
+  margin:clamp(34px,5.5vh,56px) 0;border-left:4px solid var(--ink);
+  padding-left:clamp(16px,3vw,30px);
+}
+.lore .fin{
+  margin-top:clamp(40px,6.5vh,64px);font-family:var(--display);font-weight:900;font-stretch:66%;
+  font-size:clamp(28px,4.6vw,54px);text-transform:uppercase;line-height:1;
+  border-top:1px solid var(--hair);padding-top:32px;
+}
+.lore .fin button{font:inherit;text-transform:inherit;border-bottom:4px solid var(--ink);transition:color .12s;text-align:left}
+.lore .fin button:hover{color:var(--mute)}
+
+/* ---------- footer ---------- */
+.foot{
+  flex:none;height:38px;border-top:1px solid var(--hair);
+  display:flex;align-items:center;gap:14px;padding:0 var(--pad);
+  font-size:10px;letter-spacing:.08em;color:var(--mute);
+}
+.donate{
+  display:flex;align-items:center;gap:9px;cursor:pointer;
+  color:var(--mute);transition:color .12s;font-variant-numeric:tabular-nums;
+  letter-spacing:.04em;min-height:38px;
+}
+.donate:hover{color:var(--ink)}
+.donate svg{width:12px;height:12px;fill:currentColor;flex:none}
+.donate .ok{color:var(--up)}
+.foot .right{margin-left:auto;text-transform:uppercase;letter-spacing:.14em}
+@media(max-width:560px){.foot .right{display:none}}
+
+/* ---------- mobile: bottom nav ---------- */
+@media(max-width:760px){
+  .mark{font-size:18px;padding:0 16px}
+  .bar-live{padding:0 14px;font-size:11px}
+  .xlink{width:50px}
+  .tabs{
+    position:fixed;left:0;right:0;bottom:0;z-index:40;
+    height:calc(54px + env(safe-area-inset-bottom));
+    padding-bottom:env(safe-area-inset-bottom);
+    background:var(--bg);border-top:1px solid var(--hair);
+  }
+  .tab{flex:1;border-right:none;font-size:11px;padding:0}
+  .tab.on::after{bottom:auto;top:-1px}
+  .app{padding-bottom:calc(54px + env(safe-area-inset-bottom))}
+  .big-price{font-size:clamp(58px,17vw,86px)}
+  .flip{padding:13px 14px 14px}
+  .wallet{grid-template-columns:1fr;grid-template-rows:repeat(4,1fr)}
+  .wq{border-right:none;border-bottom:1px solid var(--hair);padding:16px 20px}
+  .wq:last-child{border-bottom:none}
+  .wq .v{font-size:clamp(38px,11vw,64px)}
+  .hide-m{display:none}
+  .drop-stats{gap:18px 28px}
+  .dstat .v{font-size:clamp(32px,9vw,48px)}
+  .lore-in{padding-bottom:60px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="bar">
+  <div class="mark">$ANSEM</div>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab on" data-pane="price" role="tab" aria-selected="true">Price</button>
+    <button class="tab" data-pane="drops" role="tab" aria-selected="false">Airdrops</button>
+    <button class="tab" data-pane="wallet" role="tab" aria-selected="false">Wallet</button>
+    <button class="tab" data-pane="lore" role="tab" aria-selected="false">Lore</button>
+  </nav>
+  <div class="bar-right">
+    <div class="bar-live">
+      <span class="dot"></span>
+      <span class="p" id="barPrice">—</span>
+      <span class="d" id="barDelta"></span>
+    </div>
+    <a class="xlink" href="https://x.com/blknoiz06" target="_blank" rel="noopener" aria-label="Ansem on X">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.451-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117l11.966 15.644z"/></svg>
+    </a>
+  </div>
+</div>
+
+<!-- ================= PRICE ================= -->
+<div class="pane on" id="pane-price">
+  <div class="price-top">
+    <div class="big-price"><span id="bigPriceV">$0.0000</span><span class="big-delta" id="bigDelta"></span></div>
+    <div class="stat-row">
+      <span>MC<b id="mcap">—</b></span>
+      <span>VOL 24H<b id="vol">—</b></span>
+      <span class="hide-m">LIQ<b id="liq">—</b></span>
+      <button class="ca" id="caCopy" title="Copy contract address">9cRC…pump <span id="caState">⧉</span></button>
+    </div>
+  </div>
+
+  <div class="flip">
+    <div class="flip-line">
+      <span class="flip-title">$ANSEM will flip&nbsp;$PUMP</span>
+      <span class="flip-pct" id="flipPct">—</span>
+    </div>
+    <div class="flip-bar"><i id="flipBar"></i></div>
+    <div class="flip-sub">
+      <span>ANSEM <b id="flipA">—</b></span>
+      <span id="flipGap"></span>
+      <span>PUMP <b id="flipP">—</b></span>
+    </div>
+  </div>
+
+  <div class="chart">
+    <iframe title="$ANSEM live chart"
+      src="https://dexscreener.com/solana/9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump?embed=1&theme=dark&trades=0&info=0"
+      loading="lazy"></iframe>
+  </div>
+</div>
+
+<!-- ================= AIRDROPS ================= -->
+<div class="pane" id="pane-drops">
+  <div class="drops">
+    <div class="drop-stats">
+      <div class="dstat"><div class="v" id="airUsd">—</div><span class="k">Airdropped · live&nbsp;USD</span></div>
+      <div class="dstat"><div class="v" id="airTok">—</div><span class="k">$ANSEM sent</span></div>
+      <div class="dstat"><div class="v" id="airWallets">—</div><span class="k">Wallets</span></div>
+    </div>
+
+    <div class="keyrow">
+      <input type="password" id="heliusKey" placeholder="Helius key (optional, faster) — stays in this tab" autocomplete="off">
+      <button class="btn" id="indexBtn">Index the chain</button>
+    </div>
+    <div class="prog" id="prog"><span id="progText"></span><div class="pbar"><i id="progBar"></i></div></div>
+
+    <div class="drop-ctl">
+      <div class="search">
+        <input type="text" id="q" placeholder="Search wallet…" autocomplete="off" spellcheck="false" enterkeyhint="search">
+        <span class="kbd">/</span>
+      </div>
+      <button class="ctl on" id="sortTime">Newest</button>
+      <button class="ctl" id="sortAmount">Largest</button>
+      <button class="ctl" id="exportBtn">CSV</button>
+      <span class="sync" id="sync"></span>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:36%">Recipient</th><th>Amount</th><th class="hide-m">When</th><th>Tx</th>
+        </tr></thead>
+        <tbody id="tbody">
+          <tr><td colspan="4"><div class="empty" id="emptyMsg">Reading the chain…</div></td></tr>
+        </tbody>
+      </table>
+      <div class="more"><button class="btn" id="moreBtn" style="display:none">More</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= WALLET ================= -->
+<div class="pane" id="pane-wallet">
+  <div class="wallet">
+    <div class="wq">
+      <div class="v" id="wTotal">—</div>
+      <div class="k">Wallet value</div>
+      <div class="s"><a href="https://solscan.io/account/GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52" target="_blank" rel="noopener">GV6U…dC52 ↗</a></div>
+    </div>
+    <div class="wq">
+      <div class="v" id="wAnsem">—</div>
+      <div class="k">$ANSEM held</div>
+      <div class="s" id="wAnsemUsd">—</div>
+    </div>
+    <div class="wq">
+      <div class="v" id="wSol">—</div>
+      <div class="k">SOL held</div>
+      <div class="s" id="wSolUsd">—</div>
+    </div>
+    <div class="wq">
+      <div class="v" id="wShare">—</div>
+      <div class="k">Of total supply</div>
+      <div class="s">1,000,000,000 $ANSEM</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= LORE ================= -->
+<div class="pane" id="pane-lore">
+  <div class="lore">
+    <div class="lore-in">
+      <h1>The Black&nbsp;Bull</h1>
+
+      <span class="yr">2022</span>
+      <p>Everything burns. FTX takes the cycle down with it and Solana trades at eight dollars. The obituaries write themselves, and the industry lines up to&nbsp;sign.</p>
+      <p>One account refuses. While everyone else quietly deletes their takes, he leaves every one of his&nbsp;up.</p>
+
+      <span class="yr">2023</span>
+      <p>SOL claws its way from eight toward three hundred and the refusal becomes legend. Then Bonk. Then Wif. The trenches crown him <b>The Solana&nbsp;Guy.</b></p>
+      <p>Ansem. A Georgia Tech engineer who chose the trenches over the cubicle. No fund behind him, no backers. He earned the name the way his followers try to: one trade at a time, in&nbsp;public.</p>
+
+      <span class="yr">June 2026</span>
+      <p>The trenches are a graveyard. Volume has bled out for months and the obituaries are back, this time for memecoins themselves. On June 17 an anonymous deployer spends $6,300 on pump.fun, mints a token called The Black Bull, and sends 650 million of it to Ansem's wallet. Unasked. A dare dressed as a&nbsp;gift.</p>
+      <p>He could have sold. Every precedent in this market said sell. Instead he went at pump.fun's reward machine in public and typed the line that lit the&nbsp;fuse:</p>
+
+      <div class="pull">"Had to give the trenches a&nbsp;stimmy."</div>
+
+      <p>Then he made it real. Roughly <b>$7,000,000</b> airdropped back to the community in 72 hours, paid from the creator fees flowing into his own wallet. One drop cleared a million dollars. Hundreds of wallets woke up holding money nobody asked them to earn. A thirty-five dollar drop ran past six&nbsp;thousand.</p>
+      <p>Holders tripled in days. Token launches across Solana hit an 80-day high. SOL itself caught a bid. A dead market found a pulse because one trader handed the money back instead of walking off with&nbsp;it.</p>
+      <p>There is no roadmap here and no promise of one. The token is one man's word, settled on-chain, checkable line by line. That is either nothing at all or the most honest asset in the casino, and the market is deciding in real&nbsp;time.</p>
+      <p>The stated goal is a million holders. The real one sits on the scoreboard above: the platform that farmed the trenches for years, flipped by their own&nbsp;bull.</p>
+
+      <div class="fin"><button id="loreFlip">Watch the flip&nbsp;→</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= FOOTER ================= -->
+<div class="foot">
+  <button class="donate" id="donate" title="Copy donation address">
+    <svg viewBox="0 0 398 312" aria-hidden="true">
+      <path d="M64.6 237.9c2.4-2.4 5.7-3.8 9.2-3.8h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1l62.7-62.7z"/>
+      <path d="M64.6 3.8C67.1 1.4 70.4 0 73.8 0h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1L64.6 3.8z"/>
+      <path d="M333.1 120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8 0-8.7 7-4.6 11.1l62.7 62.7c2.4 2.4 5.7 3.8 9.2 3.8h317.4c5.8 0 8.7-7 4.6-11.1l-62.7-62.7z"/>
+    </svg>
+    <span id="donateText">GNpR…XQhj</span>
+  </button>
+  <span class="right">Unofficial · read-only · not financial advice</span>
+</div>
+
+</div><!-- /app -->
+
+<script>
+const MINT   = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
+const PUMP   = 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn';
+const WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
+const DONATE = 'GNpRaykvFa347R9WaGomGbNGGnZxMVQGKCmNTTqiXQhj';
+const SUPPLY = 1_000_000_000;
+const PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
+
+const $ = id => document.getElementById(id);
+const state = {
+  price:0, lastPrice:0, solPrice:0,
+  ansemMc:null, pumpMc:null,
+  walletAnsem:null, walletSol:null,
+  drops:[], sort:'time', query:'', shown:60, indexing:false,
+};
+
+/* ---------- format ---------- */
+const fmtBig = n => {
+  if (n==null||isNaN(n)) return '—';
+  if (n>=1e9) return '$'+(n/1e9).toFixed(2)+'B';
+  if (n>=1e6) return '$'+(n/1e6).toFixed(1)+'M';
+  if (n>=1e3) return '$'+(n/1e3).toFixed(1)+'K';
+  return '$'+n.toFixed(2);
+};
+const fmtTok = n => {
+  if (n==null||isNaN(n)) return '—';
+  if (n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if (n>=1e3) return (n/1e3).toFixed(1)+'K';
+  return n.toLocaleString('en-US',{maximumFractionDigits:0});
+};
+const fmtPrice = p => !p ? '$0.0000' : '$'+p.toFixed(p>=1?3:4);
+const shortAddr = a => a.slice(0,4)+'…'+a.slice(-4);
+const ago = ts => {
+  const s = Math.floor(Date.now()/1000-ts);
+  if (s<60) return s+'s';
+  if (s<3600) return Math.floor(s/60)+'m';
+  if (s<86400) return Math.floor(s/3600)+'h';
+  return Math.floor(s/86400)+'d';
+};
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const esc = s => s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const copy = async (text, el, done) => {
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){
+    const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);
+    t.select();document.execCommand('copy');t.remove();
+  }
+  done(el);
+};
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-selected','false')});
+    document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+    t.classList.add('on'); t.setAttribute('aria-selected','true');
+    $('pane-'+t.dataset.pane).classList.add('on');
+  });
+});
+$('loreFlip').addEventListener('click',()=>document.querySelector('[data-pane="price"]').click());
+document.addEventListener('keydown',e=>{
+  if (document.activeElement.tagName==='INPUT') return;
+  const map = {'1':'price','2':'drops','3':'wallet','4':'lore'};
+  if (map[e.key]) document.querySelector(`[data-pane="${map[e.key]}"]`).click();
+  if (e.key==='/'){e.preventDefault();document.querySelector('[data-pane="drops"]').click();$('q').focus();}
+});
+
+/* ---------- market ---------- */
+async function pollMarket(){
+  try{
+    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${MINT},${PUMP}`);
+    const j = await r.json();
+    const best = mint => {
+      const ps = (j.pairs||[]).filter(p=>p.baseToken?.address===mint);
+      ps.sort((a,b)=>(b.liquidity?.usd||0)-(a.liquidity?.usd||0));
+      return ps[0];
+    };
+    const a = best(MINT), p = best(PUMP);
+    if (!a) throw 0;
+
+    state.lastPrice = state.price;
+    state.price = parseFloat(a.priceUsd)||0;
+    if (a.priceNative && state.price) state.solPrice = state.price/parseFloat(a.priceNative);
+    state.ansemMc = a.marketCap ?? a.fdv;
+    state.pumpMc  = p ? (p.marketCap ?? p.fdv) : state.pumpMc;
+
+    const bp = $('bigPriceV').parentElement;
+    $('bigPriceV').textContent = fmtPrice(state.price);
+    if (state.lastPrice && state.price!==state.lastPrice){
+      bp.classList.remove('tick-up','tick-down'); void bp.offsetWidth;
+      bp.classList.add(state.price>state.lastPrice?'tick-up':'tick-down');
+      setTimeout(()=>bp.classList.remove('tick-up','tick-down'),800);
+    }
+    const d24 = a.priceChange?.h24;
+    const bd = $('bigDelta');
+    bd.textContent = d24==null?'':(d24>0?'+':'')+d24.toFixed(1)+'%';
+    bd.className = 'big-delta '+(d24>=0?'up':'down');
+
+    $('mcap').textContent = fmtBig(state.ansemMc);
+    $('vol').textContent  = fmtBig(a.volume?.h24);
+    $('liq').textContent  = fmtBig(a.liquidity?.usd);
+    $('barPrice').textContent = fmtPrice(state.price);
+    $('barDelta').textContent = bd.textContent;
+    $('barDelta').className = 'd '+(d24>=0?'up':'down');
+
+    if (state.ansemMc && state.pumpMc){
+      const pct = (state.ansemMc/state.pumpMc)*100;
+      $('flipPct').textContent = pct>=100 ? 'FLIPPED' : pct.toFixed(1)+'%';
+      $('flipBar').style.width = Math.min(100,pct)+'%';
+      $('flipA').textContent = fmtBig(state.ansemMc);
+      $('flipP').textContent = fmtBig(state.pumpMc);
+      $('flipGap').textContent = pct>=100 ? '' : fmtBig(state.pumpMc-state.ansemMc)+' to go';
+    }
+    renderWalletUsd(); renderStats(); renderTable();
+  }catch(e){ $('barPrice').textContent='—'; }
+}
+
+/* ---------- wallet ---------- */
+async function rpc(ep,method,params){
+  const r = await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+const rpcEndpoint = () => {
+  const k = $('heliusKey').value.trim();
+  return k ? `https://mainnet.helius-rpc.com/?api-key=${k}` : PUBLIC_RPC;
+};
+async function pollWallet(){
+  // server API first (key stays server-side, edge-cached)
+  try{
+    const r = await fetch('/api/wallet');
+    if (r.ok){
+      const j = await r.json();
+      if (j.sol != null){
+        state.walletSol = j.sol; state.walletAnsem = j.ansem;
+        $('wAnsem').textContent = fmtTok(state.walletAnsem);
+        $('wSol').textContent = state.walletSol.toLocaleString('en-US',{maximumFractionDigits:1});
+        $('wShare').textContent = ((state.walletAnsem/SUPPLY)*100).toFixed(1)+'%';
+        renderWalletUsd();
+        return;
+      }
+    }
+  }catch(e){}
+  // fallback: direct RPC from the browser
+  try{
+    const ep = rpcEndpoint();
+    const [bal,tok] = await Promise.all([
+      rpc(ep,'getBalance',[WALLET]),
+      rpc(ep,'getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]),
+    ]);
+    state.walletSol = (bal?.value??0)/1e9;
+    state.walletAnsem = (tok?.value||[]).reduce((s,a)=>s+(a.account?.data?.parsed?.info?.tokenAmount?.uiAmount||0),0);
+    $('wAnsem').textContent = fmtTok(state.walletAnsem);
+    $('wSol').textContent = state.walletSol.toLocaleString('en-US',{maximumFractionDigits:1});
+    $('wShare').textContent = ((state.walletAnsem/SUPPLY)*100).toFixed(1)+'%';
+    renderWalletUsd();
+  }catch(e){}
+}
+function renderWalletUsd(){
+  if (state.walletAnsem==null||!state.price) return;
+  const aUsd = state.walletAnsem*state.price;
+  const sUsd = (state.walletSol||0)*(state.solPrice||0);
+  $('wTotal').textContent = fmtBig(aUsd+sUsd);
+  $('wAnsemUsd').textContent = '≈ '+fmtBig(aUsd);
+  $('wSolUsd').textContent = '≈ '+fmtBig(sUsd);
+}
+
+/* ---------- ledger ---------- */
+function progress(t,pct){$('prog').classList.add('show');$('progText').textContent=t;if(pct!=null)$('progBar').style.width=Math.min(100,pct)+'%';}
+function progressDone(t){progress(t,100);setTimeout(()=>$('prog').classList.remove('show'),3500);}
+
+async function indexChain(){
+  if (state.indexing) return;
+  state.indexing = true; $('indexBtn').disabled = true; state.drops = [];
+  const key = $('heliusKey').value.trim();
+  try{
+    if (key) await viaHelius(key); else await viaPublic();
+    state.drops.sort((a,b)=>b.ts-a.ts);
+    progressDone(`${state.drops.length.toLocaleString()} drops indexed`);
+  }catch(e){
+    progressDone('rate-limited — a free Helius key clears this');
+  }
+  state.indexing = false; $('indexBtn').disabled = false;
+  renderStats(); renderTable();
+}
+
+async function viaHelius(key){
+  let before='',pages=0;const MAX=60;
+  while(pages<MAX){
+    const url = `https://api.helius.xyz/v0/addresses/${WALLET}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
+    const r = await fetch(url);
+    if (r.status===429){await sleep(1200);continue;}
+    if (!r.ok) throw new Error('helius '+r.status);
+    const batch = await r.json();
+    if (!batch.length) break;
+    for (const tx of batch)
+      for (const t of (tx.tokenTransfers||[]))
+        if (t.mint===MINT && t.fromUserAccount===WALLET && t.toUserAccount && t.toUserAccount!==WALLET && t.tokenAmount>0)
+          state.drops.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+    before = batch[batch.length-1].signature; pages++;
+    progress(`${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
+    renderStats(); if (pages%4===0) renderTable();
+    await sleep(120);
+  }
+}
+
+async function viaPublic(){
+  progress('finding token account…',2);
+  const tok = await rpc(PUBLIC_RPC,'getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]);
+  const accounts = (tok?.value||[]).map(a=>a.pubkey);
+  if (!accounts.length) throw new Error('no token account');
+  let sigs=[];
+  for (const acct of accounts){
+    let before=null;
+    while (sigs.length<2000){
+      const page = await rpc(PUBLIC_RPC,'getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]);
+      if (!page||!page.length) break;
+      sigs = sigs.concat(page.filter(s=>!s.err).map(s=>s.signature));
+      if (page.length<1000) break;
+      before = page[page.length-1].signature;
+      progress(`${sigs.length.toLocaleString()} signatures`,Math.min(20,sigs.length/100));
+      await sleep(300);
+    }
+  }
+  const CHUNK=8;
+  for (let i=0;i<sigs.length;i+=CHUNK){
+    const chunk = sigs.slice(i,i+CHUNK);
+    const body = chunk.map((sig,n)=>({jsonrpc:'2.0',id:n,method:'getTransaction',
+      params:[sig,{encoding:'jsonParsed',maxSupportedTransactionVersion:0}]}));
+    let results;
+    for (let a=0;a<4;a++){
+      const r = await fetch(PUBLIC_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if (r.status===429){await sleep(1800*(a+1));continue;}
+      results = await r.json(); break;
+    }
+    if (!results) throw new Error('rate limit');
+    for (let n=0;n<results.length;n++){
+      const tx = results[n]?.result; if (!tx?.meta) continue;
+      const pre={},post={};
+      for (const b of (tx.meta.preTokenBalances||[])) if (b.mint===MINT) pre[b.owner]=b.uiTokenAmount?.uiAmount||0;
+      for (const b of (tx.meta.postTokenBalances||[])) if (b.mint===MINT) post[b.owner]=b.uiTokenAmount?.uiAmount||0;
+      if (((post[WALLET]||0)-(pre[WALLET]||0))>=0) continue;
+      for (const o of Object.keys(post)){
+        if (o===WALLET) continue;
+        const d = (post[o]||0)-(pre[o]||0);
+        if (d>0) state.drops.push({to:o,amount:d,ts:tx.blockTime||0,sig:chunk[n]});
+      }
+    }
+    progress(`${Math.min(i+CHUNK,sigs.length)}/${sigs.length} txs · ${state.drops.length.toLocaleString()} drops`,20+(i/sigs.length)*80);
+    renderStats(); if ((i/CHUNK)%6===0) renderTable();
+    await sleep(450);
+  }
+}
+
+function filtered(){
+  let d = state.drops;
+  if (state.query){const q=state.query.toLowerCase();d=d.filter(x=>x.to.toLowerCase().includes(q));}
+  d=[...d];
+  if (state.sort==='amount') d.sort((a,b)=>b.amount-a.amount);
+  else d.sort((a,b)=>b.ts-a.ts);
+  return d;
+}
+function renderStats(){
+  if (!state.drops.length) return;
+  const tot = state.drops.reduce((s,d)=>s+d.amount,0);
+  $('airTok').textContent = fmtTok(tot);
+  $('airUsd').textContent = state.price?fmtBig(tot*state.price):'—';
+  $('airWallets').textContent = new Set(state.drops.map(d=>d.to)).size.toLocaleString('en-US');
+}
+function renderTable(){
+  if (!state.drops.length) return;
+  const d = filtered();
+  const body = $('tbody');
+  if (!d.length){
+    body.innerHTML = `<tr><td colspan="4"><div class="empty">Nothing matches "${esc(state.query)}"</div></td></tr>`;
+    $('moreBtn').style.display='none';return;
+  }
+  body.innerHTML = d.slice(0,state.shown).map(x=>`
+    <tr class="row">
+      <td><a href="https://solscan.io/account/${x.to}" target="_blank" rel="noopener" title="${x.to}">${shortAddr(x.to)}</a></td>
+      <td>${fmtTok(x.amount)}<span class="usd">${state.price?fmtBig(x.amount*state.price):''}</span></td>
+      <td class="hide-m">${x.ts?ago(x.ts):'—'}</td>
+      <td><a class="tx" href="https://solscan.io/tx/${x.sig}" target="_blank" rel="noopener">${x.sig.slice(0,6)}…</a></td>
+    </tr>`).join('');
+  $('moreBtn').style.display = d.length>state.shown?'':'none';
+}
+function exportCsv(){
+  if (!state.drops.length) return;
+  const lines=['recipient,amount_ansem,usd_at_current_price,timestamp,signature'];
+  for (const d of filtered())
+    lines.push([d.to,d.amount,state.price?(d.amount*state.price).toFixed(2):'',d.ts?new Date(d.ts*1000).toISOString():'',d.sig].join(','));
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+  a.download='ansem-airdrops.csv';a.click();URL.revokeObjectURL(a.href);
+}
+
+/* ---------- wire ---------- */
+$('caCopy').addEventListener('click',()=>copy(MINT,null,()=>{
+  $('caState').textContent='copied';$('caState').className='ok';
+  setTimeout(()=>{$('caState').textContent='⧉';$('caState').className='';},1500);
+}));
+$('donate').addEventListener('click',()=>copy(DONATE,null,()=>{
+  $('donateText').textContent='address copied';$('donateText').className='ok';
+  setTimeout(()=>{$('donateText').textContent='GNpR…XQhj';$('donateText').className='';},1600);
+}));
+$('q').addEventListener('input',e=>{state.query=e.target.value.trim();state.shown=60;renderTable();});
+$('sortTime').addEventListener('click',()=>setSort('time'));
+$('sortAmount').addEventListener('click',()=>setSort('amount'));
+function setSort(s){state.sort=s;state.shown=60;
+  $('sortTime').classList.toggle('on',s==='time');
+  $('sortAmount').classList.toggle('on',s==='amount');renderTable();}
+$('moreBtn').addEventListener('click',()=>{state.shown+=120;renderTable();});
+$('exportBtn').addEventListener('click',exportCsv);
+$('indexBtn').addEventListener('click',indexChain);
+
+/* ---------- server drops ---------- */
+async function loadServerDrops(){
+  try{
+    const r = await fetch('/api/drops');
+    if (!r.ok) throw 0;
+    const j = await r.json();
+    if (!Array.isArray(j.drops)) throw 0;
+    state.drops = j.drops;
+    state.drops.sort((a,b)=>b.ts-a.ts);
+    renderStats(); renderTable();
+    if (j.updatedAt){
+      const m = Math.max(0, Math.round((Date.now()-j.updatedAt)/60000));
+      $('sync').textContent = m<1 ? 'synced now' : 'synced '+m+'m ago';
+    }
+    if (!state.drops.length) $('emptyMsg').textContent = 'No drops found yet.';
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ---------- boot ---------- */
+pollMarket(); pollWallet();
+setInterval(pollMarket,15000);
+setInterval(pollWallet,60000);
+
+(async () => {
+  const ok = await loadServerDrops();
+  if (ok){
+    setInterval(loadServerDrops, 300000); // refresh every 5 min
+  } else {
+    // no server API (running as a bare file) — reveal the manual indexer
+    document.querySelector('.keyrow').classList.add('show');
+    $('emptyMsg').innerHTML = 'Hit <b>INDEX THE CHAIN</b>.<br>Every drop is read live from Solana. Nothing cached, nothing&nbsp;stored.';
+  }
+})();
+</script>
+</body>
+</html>
