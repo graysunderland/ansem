@@ -23,6 +23,10 @@ async function rpc(endpoint, method, params) {
 }
 
 export async function discoverWallets(endpoint) {
+  // pin via env to skip discovery entirely
+  const pinned = process.env.WALLET_OVERRIDE;
+  if (pinned) return { wallets: [...new Set([pinned, CREATOR_WALLET])], main: pinned };
+
   const wallets = [CREATOR_WALLET];
   let main = CREATOR_WALLET;
   try {
@@ -59,11 +63,13 @@ export default async function handler(req, res) {
 
   const drops = [];
   const seen = new Set();
+  const debug = {};
   const started = Date.now();
   const TIME_BUDGET = 45000;
 
   for (const w of wallets) {
     let before = '', pages = 0, retries = 0;
+    debug[w] = { pages: 0, drops: 0, error: null };
     while (pages < MAX_PAGES && Date.now() - started < TIME_BUDGET) {
       const url =
         `https://api.helius.xyz/v0/addresses/${w}/transactions` +
@@ -79,7 +85,8 @@ export default async function handler(req, res) {
       retries = 0;
 
       const batch = await r.json();
-      if (!Array.isArray(batch) || !batch.length) break;
+      if (!Array.isArray(batch)) { debug[w].error = batch?.error || 'non-array response'; break; }
+      if (!batch.length) break;
 
       for (const tx of batch) {
         for (const t of tx.tokenTransfers || []) {
@@ -101,13 +108,15 @@ export default async function handler(req, res) {
 
       before = batch[batch.length - 1].signature;
       pages++;
+      debug[w].pages = pages;
       await sleep(80);
     }
+    debug[w].drops = drops.length;
   }
 
   drops.sort((a, b) => b.ts - a.ts);
 
   res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=86400');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.status(200).json({ updatedAt: Date.now(), wallet: main, wallets, count: drops.length, drops });
+  res.status(200).json({ updatedAt: Date.now(), wallet: main, wallets, count: drops.length, debug, drops });
 }

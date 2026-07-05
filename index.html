@@ -481,8 +481,13 @@ const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 // GV6U is the pump.fun creator-fee wallet; the $ANSEM stash and airdrops live
 // in the holding wallet, which we discover live as the largest human holder.
 const CREATOR_WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
-let MAIN_WALLET = CREATOR_WALLET;          // replaced by discovery
-let WALLETS = [CREATOR_WALLET];            // every wallet we index outbound from
+// Pin the holding wallet here (or via ?wallet=ADDR in the URL) to skip
+// discovery entirely — confirm it on Solscan: token page → Holders → top
+// wallet owner that isn't a pool.
+const PIN_WALLET = '';
+const URL_WALLET = new URLSearchParams(location.search).get('wallet') || '';
+let MAIN_WALLET = URL_WALLET || PIN_WALLET || CREATOR_WALLET;
+let WALLETS = [...new Set([MAIN_WALLET, CREATOR_WALLET])];
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -625,7 +630,12 @@ async function rpcTry(method,params,tries=7){
       const out = await rpc(ep,method,params);
       rpcIdx = (rpcIdx+t)%RPC_POOL.length;
       return out;
-    }catch(e){ await sleep(e&&e.rate?700*(t+1):350*(t+1)); }
+    }catch(e){
+      const msg = String(e?.message||'');
+      // unsupported/disabled method: skip straight to the next endpoint
+      if (/not (found|supported)|disabled|-32601/i.test(msg)){ continue; }
+      await sleep(e&&e.rate?700*(t+1):350*(t+1));
+    }
   }
   throw new Error('all RPCs limited');
 }
@@ -668,6 +678,7 @@ const knownSigs = () => new Set(state.drops.map(d=>d.sig));
 
 /* ---------- wallet discovery: the largest human holder of the mint ---------- */
 async function discoverWallets(){
+  if (URL_WALLET || PIN_WALLET){ updateWalletLinks(); showWatching(); return; }
   try{
     const top = await rpcTry('getTokenLargestAccounts',[MINT]);
     const tokAccts = (top?.value||[]).slice(0,12).map(v=>({addr:v.address, amt:v.uiAmount||0}));
@@ -694,7 +705,13 @@ async function discoverWallets(){
       WALLETS = [...new Set([MAIN_WALLET, CREATOR_WALLET])];
       updateWalletLinks();
     }
-  }catch(e){}
+  }catch(e){ console.warn('wallet discovery failed:', e); }
+  showWatching();
+}
+function showWatching(){
+  const el = $('sync');
+  if (el && !el.textContent) el.textContent = 'watching '+WALLETS.map(shortAddr).join(' + ');
+  console.log('[ansem] indexing outbound from:', WALLETS.join(', '));
 }
 function updateWalletLinks(){
   const el = $('wLink');
@@ -751,13 +768,21 @@ async function indexChain(full){
   if (state.indexing) return;
   state.indexing = true; $('indexBtn').disabled = true;
   if (full) state.drops = [];
-  const stopAt = full ? new Set() : knownSigs();
   const key = $('heliusKey').value.trim();
+  // if boot-time discovery failed, retry now — with a key it goes through Helius
+  if (MAIN_WALLET===CREATOR_WALLET && !URL_WALLET && !PIN_WALLET){
+    progress('finding Ansem\'s wallet…',1);
+    await discoverWallets();
+    pollWallet();
+  }
+  const stopAt = full ? new Set() : knownSigs();
   try{
     if (key){
+      let heliusFailed = false;
       try{ await viaHelius(key,stopAt); }
-      catch(e){
-        progress('enhanced API busy — switching to direct RPC…');
+      catch(e){ heliusFailed = true; }
+      if (heliusFailed || !state.drops.length){
+        progress('cross-checking via direct RPC…');
         await viaPublic(stopAt);
       }
     } else {
@@ -778,54 +803,61 @@ async function indexChain(full){
 }
 
 async function viaHelius(key,stopAt){
-  const MAX=120;const found=[];
+  const MAX=120;const found=[];let anyOk=false;
   for (const w of WALLETS){
-    let before='',pages=0,rl=0;
-    outer: while(pages<MAX){
-      const url = `https://api.helius.xyz/v0/addresses/${w}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
-      const r = await fetch(url);
-      if (r.status===429){
-        if (++rl>6) throw new Error('helius saturated');
-        await sleep(1100*rl); continue;
+    try{
+      let before='',pages=0,rl=0;
+      outer: while(pages<MAX){
+        const url = `https://api.helius.xyz/v0/addresses/${w}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
+        const r = await fetch(url);
+        if (r.status===429){
+          if (++rl>6) throw new Error('helius saturated');
+          await sleep(1100*rl); continue;
+        }
+        if (!r.ok) throw new Error('helius '+r.status);
+        rl=0;
+        const batch = await r.json();
+        if (!Array.isArray(batch)) throw new Error(batch?.error||'helius error');
+        anyOk=true;
+        if (!batch.length) break;
+        for (const tx of batch){
+          if (stopAt.has(tx.signature)) break outer; // reached what we already have
+          for (const t of (tx.tokenTransfers||[]))
+            if (t.mint===MINT && t.fromUserAccount===w && t.toUserAccount && !WALLETS.includes(t.toUserAccount) && t.tokenAmount>0)
+              found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+        }
+        before = batch[batch.length-1].signature; pages++;
+        mergeDrops(found.splice(0));
+        progress(`${shortAddr(w)} · ${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
+        renderStats(); if (pages%4===0) renderTable();
+        await sleep(120);
       }
-      if (!r.ok) throw new Error('helius '+r.status);
-      rl=0;
-      const batch = await r.json();
-      if (!batch.length) break;
-      for (const tx of batch){
-        if (stopAt.has(tx.signature)) break outer; // reached what we already have
-        for (const t of (tx.tokenTransfers||[]))
-          if (t.mint===MINT && t.fromUserAccount===w && t.toUserAccount && !WALLETS.includes(t.toUserAccount) && t.tokenAmount>0)
-            found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
-      }
-      before = batch[batch.length-1].signature; pages++;
-      mergeDrops(found.splice(0));
-      progress(`${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
-      renderStats(); if (pages%4===0) renderTable();
-      await sleep(120);
-    }
+    }catch(e){ console.warn('helius path failed for',w,e); }
   }
   mergeDrops(found);
+  if (!anyOk) throw new Error('helius unusable');
 }
 
 async function viaPublic(stopAt){
   progress('finding token accounts…',2);
-  // token accounts across every tracked wallet
-  const accounts = [];
+  // token accounts across every tracked wallet, plus the wallets themselves —
+  // wallet-level signatures catch history from token accounts closed since
+  const targets = [...WALLETS];
   for (const w of WALLETS){
     try{
       const tok = await rpcTry('getTokenAccountsByOwner',[w,{mint:MINT},{encoding:'jsonParsed'}]);
-      for (const a of (tok?.value||[])) accounts.push(a.pubkey);
+      for (const a of (tok?.value||[])) targets.push(a.pubkey);
     }catch(e){}
   }
-  if (!accounts.length) throw new Error('no token account');
 
   // collect signatures newest-first, stop early at anything we already hold
   let sigs=[];
-  for (const acct of accounts){
+  for (const acct of targets){
     let before=null, hitKnown=false, mine=0;
     while (mine<4000 && !hitKnown){
-      const page = await rpcTry('getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]);
+      let page;
+      try{ page = await rpcTry('getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]); }
+      catch(e){ break; }
       if (!page||!page.length) break;
       for (const s of page){
         if (stopAt.has(s.signature)){ hitKnown=true; break; }
@@ -954,14 +986,17 @@ async function loadServerDrops(){
 }
 
 /* ---------- boot ---------- */
-pollMarket(); pollWallet();
+pollMarket();
 setInterval(pollMarket,15000);
 setInterval(pollWallet,60000);
 
 (async () => {
-  // 0 — find the actual holding wallet on-chain before anything else
+  // 0 — find the actual holding wallet on-chain, alone, before other RPC traffic
   await discoverWallets();
   pollWallet();
+  if (MAIN_WALLET===CREATOR_WALLET && !URL_WALLET && !PIN_WALLET){
+    console.warn('[ansem] discovery did not resolve the holding wallet yet — will retry when indexing starts (a Helius key makes this reliable)');
+  }
 
   // 1 — instant hydrate from the browser cache, if we've been here before
   const cached = store.get(CACHE_KEY);
