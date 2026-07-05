@@ -18,8 +18,10 @@ export default async function handler(req, res) {
 
   const drops = [];
   let before = '', pages = 0, retries = 0;
+  const started = Date.now();
+  const TIME_BUDGET = 45000; // return partial data rather than time out empty
 
-  while (pages < MAX_PAGES) {
+  while (pages < MAX_PAGES && Date.now() - started < TIME_BUDGET) {
     const url =
       `https://api.helius.xyz/v0/addresses/${WALLET}/transactions` +
       `?api-key=${key}&limit=100` + (before ? `&before=${before}` : '');

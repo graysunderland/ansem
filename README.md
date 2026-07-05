@@ -37,7 +37,10 @@ warm even with no traffic.
 
 Opened as a bare file (no server), the page detects the missing API and
 reveals a manual "Index the chain" control that reads Solana directly from
-the browser, with an optional paste-in Helius key. Nothing is stored.
+the browser. It rotates across three public RPC providers with adaptive
+backoff, saves progress to the browser as it goes, and resumes from where
+it stopped — retrying is always safe and revisits only fetch what's new.
+An optional paste-in Helius key makes it fast; the key never leaves the tab.
 
 ## Notes
 

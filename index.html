@@ -18,7 +18,7 @@
   --mute:#63635C;
   --hair:#1D1D1B;
   --up:#19C964;
-  --down:#FF3B30;
+
   --display:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
   --mono:'Spline Sans Mono',ui-monospace,'SF Mono',Menlo,monospace;
   --pad:clamp(18px,3vw,40px);
@@ -70,7 +70,7 @@ h1,h2,.pull{text-wrap:balance}
 }
 .dot{width:6px;height:6px;border-radius:50%;background:var(--up);animation:pulse 2s ease-in-out infinite;flex:none}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
-.bar-live .d.up{color:var(--up)} .bar-live .d.down{color:var(--down)}
+.bar-live .d.up{color:var(--up)}
 .xlink{
   display:flex;align-items:center;justify-content:center;
   width:56px;border-left:1px solid var(--hair);color:var(--mute);transition:color .12s;
@@ -91,12 +91,12 @@ h1,h2,.pull{text-wrap:balance}
   display:flex;align-items:baseline;gap:clamp(12px,2.4vw,32px);flex-wrap:wrap;
   transition:color .25s;
 }
-.big-price.tick-up{color:var(--up)} .big-price.tick-down{color:var(--down)}
+.big-price.tick-up{color:var(--up)}
 .big-delta{
   font-family:var(--display);font-weight:800;font-stretch:76%;
   font-size:clamp(20px,3.2vw,42px);font-variant-numeric:tabular-nums;
 }
-.big-delta.up{color:var(--up)} .big-delta.down{color:var(--down)}
+.big-delta.up{color:var(--up)}
 .stat-row{
   display:flex;gap:clamp(16px,3vw,48px);flex-wrap:wrap;
   padding:16px 0 0;font-size:12px;color:var(--mute);
@@ -463,7 +463,6 @@ const PUMP   = 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn';
 const WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
 const DONATE = 'GNpRaykvFa347R9WaGomGbNGGnZxMVQGKCmNTTqiXQhj';
 const SUPPLY = 1_000_000_000;
-const PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -545,22 +544,27 @@ async function pollMarket(){
 
     const bp = $('bigPriceV').parentElement;
     $('bigPriceV').textContent = fmtPrice(state.price);
-    if (state.lastPrice && state.price!==state.lastPrice){
-      bp.classList.remove('tick-up','tick-down'); void bp.offsetWidth;
-      bp.classList.add(state.price>state.lastPrice?'tick-up':'tick-down');
-      setTimeout(()=>bp.classList.remove('tick-up','tick-down'),800);
+    if (state.lastPrice && state.price>state.lastPrice){
+      bp.classList.remove('tick-up'); void bp.offsetWidth;
+      bp.classList.add('tick-up');
+      setTimeout(()=>bp.classList.remove('tick-up'),800);
     }
     const d24 = a.priceChange?.h24;
     const bd = $('bigDelta');
-    bd.textContent = d24==null?'':(d24>0?'+':'')+d24.toFixed(1)+'%';
-    bd.className = 'big-delta '+(d24>=0?'up':'down');
+    if (d24!=null && d24>0){
+      bd.textContent = '+'+d24.toFixed(1)+'%';
+      bd.className = 'big-delta up';
+    } else {
+      bd.textContent = '';
+      bd.className = 'big-delta';
+    }
 
     $('mcap').textContent = fmtBig(state.ansemMc);
     $('vol').textContent  = fmtBig(a.volume?.h24);
     $('liq').textContent  = fmtBig(a.liquidity?.usd);
     $('barPrice').textContent = fmtPrice(state.price);
     $('barDelta').textContent = bd.textContent;
-    $('barDelta').className = 'd '+(d24>=0?'up':'down');
+    $('barDelta').className = 'd'+(bd.textContent?' up':'');
 
     if (state.ansemMc && state.pumpMc){
       const pct = (state.ansemMc/state.pumpMc)*100;
@@ -575,17 +579,72 @@ async function pollMarket(){
 }
 
 /* ---------- wallet ---------- */
+/* ---------- rpc pool: rotate endpoints, back off on 429 ---------- */
+const RPC_POOL = [
+  'https://solana-rpc.publicnode.com',
+  'https://api.mainnet-beta.solana.com',
+  'https://solana.drpc.org',
+];
+let rpcIdx = 0;
 async function rpc(ep,method,params){
   const r = await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+  if (r.status===429) throw {rate:true};
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
   return j.result;
 }
+async function rpcTry(method,params,tries=7){
+  const key = $('heliusKey').value.trim();
+  if (key){
+    try{ return await rpc(`https://mainnet.helius-rpc.com/?api-key=${key}`,method,params); }catch(e){}
+  }
+  for (let t=0;t<tries;t++){
+    const ep = RPC_POOL[(rpcIdx+t)%RPC_POOL.length];
+    try{
+      const out = await rpc(ep,method,params);
+      rpcIdx = (rpcIdx+t)%RPC_POOL.length;
+      return out;
+    }catch(e){ await sleep(e&&e.rate?700*(t+1):350*(t+1)); }
+  }
+  throw new Error('all RPCs limited');
+}
+async function batchTry(body,tries=8){
+  const key = $('heliusKey').value.trim();
+  for (let t=0;t<tries;t++){
+    // with a key: lean on Helius first, only spill to the public pool after 3 strikes
+    const ep = (key && t<3)
+      ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+      : RPC_POOL[(rpcIdx+t)%RPC_POOL.length];
+    try{
+      const r = await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if (r.status===429){await sleep(900*(t+1));continue;}
+      const j = await r.json();
+      if (!Array.isArray(j)) throw 0;
+      if (!key) rpcIdx = (rpcIdx+t)%RPC_POOL.length;
+      return j;
+    }catch(e){ await sleep(500*(t+1)); }
+  }
+  throw new Error('all RPCs limited');
+}
 const rpcEndpoint = () => {
   const k = $('heliusKey').value.trim();
-  return k ? `https://mainnet.helius-rpc.com/?api-key=${k}` : PUBLIC_RPC;
+  return k ? `https://mainnet.helius-rpc.com/?api-key=${k}` : RPC_POOL[rpcIdx];
 };
+
+/* ---------- browser cache (safe everywhere) ---------- */
+const store = {
+  get(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} },
+};
+const CACHE_KEY = 'ansem_drops_v1';
+function saveCache(){ store.set(CACHE_KEY,{drops:state.drops,savedAt:Date.now()}); }
+function mergeDrops(newDrops){
+  const seen = new Set(state.drops.map(d=>d.sig+'|'+d.to));
+  for (const d of newDrops) if (!seen.has(d.sig+'|'+d.to)){ state.drops.push(d); seen.add(d.sig+'|'+d.to); }
+  state.drops.sort((a,b)=>b.ts-a.ts);
+}
+const knownSigs = () => new Set(state.drops.map(d=>d.sig));
 async function pollWallet(){
   // server API first (key stays server-side, edge-cached)
   try{
@@ -602,12 +661,11 @@ async function pollWallet(){
       }
     }
   }catch(e){}
-  // fallback: direct RPC from the browser
+  // fallback: direct RPC from the browser (rotating pool)
   try{
-    const ep = rpcEndpoint();
     const [bal,tok] = await Promise.all([
-      rpc(ep,'getBalance',[WALLET]),
-      rpc(ep,'getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]),
+      rpcTry('getBalance',[WALLET]),
+      rpcTry('getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]),
     ]);
     state.walletSol = (bal?.value??0)/1e9;
     state.walletAnsem = (tok?.value||[]).reduce((s,a)=>s+(a.account?.data?.parsed?.info?.tokenAmount?.uiAmount||0),0);
@@ -630,71 +688,100 @@ function renderWalletUsd(){
 function progress(t,pct){$('prog').classList.add('show');$('progText').textContent=t;if(pct!=null)$('progBar').style.width=Math.min(100,pct)+'%';}
 function progressDone(t){progress(t,100);setTimeout(()=>$('prog').classList.remove('show'),3500);}
 
-async function indexChain(){
+async function indexChain(full){
   if (state.indexing) return;
-  state.indexing = true; $('indexBtn').disabled = true; state.drops = [];
+  state.indexing = true; $('indexBtn').disabled = true;
+  if (full) state.drops = [];
+  const stopAt = full ? new Set() : knownSigs();
   const key = $('heliusKey').value.trim();
   try{
-    if (key) await viaHelius(key); else await viaPublic();
+    if (key){
+      try{ await viaHelius(key,stopAt); }
+      catch(e){
+        progress('enhanced API busy — switching to direct RPC…');
+        await viaPublic(stopAt);
+      }
+    } else {
+      await viaPublic(stopAt);
+    }
     state.drops.sort((a,b)=>b.ts-a.ts);
+    saveCache();
     progressDone(`${state.drops.length.toLocaleString()} drops indexed`);
+    $('sync').textContent = 'synced now';
   }catch(e){
-    progressDone('rate-limited — a free Helius key clears this');
+    saveCache();
+    progressDone(state.drops.length
+      ? `${state.drops.length.toLocaleString()} drops (partial) — retrying is safe, it resumes`
+      : 'RPCs are saturated — retry in a minute or paste a free Helius key');
   }
   state.indexing = false; $('indexBtn').disabled = false;
   renderStats(); renderTable();
 }
 
-async function viaHelius(key){
-  let before='',pages=0;const MAX=60;
-  while(pages<MAX){
+async function viaHelius(key,stopAt){
+  let before='',pages=0,rl=0;const MAX=120;const found=[];
+  outer: while(pages<MAX){
     const url = `https://api.helius.xyz/v0/addresses/${WALLET}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
     const r = await fetch(url);
-    if (r.status===429){await sleep(1200);continue;}
+    if (r.status===429){
+      if (++rl>6) throw new Error('helius saturated');
+      await sleep(1100*rl); continue;
+    }
     if (!r.ok) throw new Error('helius '+r.status);
+    rl=0;
     const batch = await r.json();
     if (!batch.length) break;
-    for (const tx of batch)
+    for (const tx of batch){
+      if (stopAt.has(tx.signature)) break outer; // reached what we already have
       for (const t of (tx.tokenTransfers||[]))
         if (t.mint===MINT && t.fromUserAccount===WALLET && t.toUserAccount && t.toUserAccount!==WALLET && t.tokenAmount>0)
-          state.drops.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+          found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+    }
     before = batch[batch.length-1].signature; pages++;
+    mergeDrops(found.splice(0));
     progress(`${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
     renderStats(); if (pages%4===0) renderTable();
     await sleep(120);
   }
+  mergeDrops(found);
 }
 
-async function viaPublic(){
+async function viaPublic(stopAt){
   progress('finding token account…',2);
-  const tok = await rpc(PUBLIC_RPC,'getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]);
+  const tok = await rpcTry('getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]);
   const accounts = (tok?.value||[]).map(a=>a.pubkey);
   if (!accounts.length) throw new Error('no token account');
+
+  // collect signatures newest-first, stop early at anything we already hold
   let sigs=[];
   for (const acct of accounts){
-    let before=null;
-    while (sigs.length<2000){
-      const page = await rpc(PUBLIC_RPC,'getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]);
+    let before=null, hitKnown=false;
+    while (sigs.length<3000 && !hitKnown){
+      const page = await rpcTry('getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]);
       if (!page||!page.length) break;
-      sigs = sigs.concat(page.filter(s=>!s.err).map(s=>s.signature));
+      for (const s of page){
+        if (stopAt.has(s.signature)){ hitKnown=true; break; }
+        if (!s.err) sigs.push(s.signature);
+      }
       if (page.length<1000) break;
       before = page[page.length-1].signature;
-      progress(`${sigs.length.toLocaleString()} signatures`,Math.min(20,sigs.length/100));
-      await sleep(300);
+      progress(`${sigs.length.toLocaleString()} signatures`,Math.min(18,sigs.length/170));
+      await sleep(250);
     }
   }
-  const CHUNK=8;
-  for (let i=0;i<sigs.length;i+=CHUNK){
-    const chunk = sigs.slice(i,i+CHUNK);
-    const body = chunk.map((sig,n)=>({jsonrpc:'2.0',id:n,method:'getTransaction',
+  if (!sigs.length){ progress('up to date',100); return; }
+
+  // fetch transactions: small batches, adaptive pacing, endpoint rotation
+  const found=[];
+  const keyed = !!$('heliusKey').value.trim();
+  let chunk = keyed?12:6, delay = keyed?180:350;
+  for (let i=0;i<sigs.length;i+=chunk){
+    const slice = sigs.slice(i,i+chunk);
+    const body = slice.map((sig,n)=>({jsonrpc:'2.0',id:n,method:'getTransaction',
       params:[sig,{encoding:'jsonParsed',maxSupportedTransactionVersion:0}]}));
     let results;
-    for (let a=0;a<4;a++){
-      const r = await fetch(PUBLIC_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      if (r.status===429){await sleep(1800*(a+1));continue;}
-      results = await r.json(); break;
-    }
-    if (!results) throw new Error('rate limit');
+    try{ results = await batchTry(body); delay = Math.max(250, delay*0.9); }
+    catch(e){ delay = Math.min(3000, delay*1.7); i -= chunk; await sleep(delay); continue; }
     for (let n=0;n<results.length;n++){
       const tx = results[n]?.result; if (!tx?.meta) continue;
       const pre={},post={};
@@ -704,12 +791,13 @@ async function viaPublic(){
       for (const o of Object.keys(post)){
         if (o===WALLET) continue;
         const d = (post[o]||0)-(pre[o]||0);
-        if (d>0) state.drops.push({to:o,amount:d,ts:tx.blockTime||0,sig:chunk[n]});
+        if (d>0) found.push({to:o,amount:d,ts:tx.blockTime||0,sig:slice[n]});
       }
     }
-    progress(`${Math.min(i+CHUNK,sigs.length)}/${sigs.length} txs · ${state.drops.length.toLocaleString()} drops`,20+(i/sigs.length)*80);
-    renderStats(); if ((i/CHUNK)%6===0) renderTable();
-    await sleep(450);
+    if (found.length){ mergeDrops(found.splice(0)); saveCache(); }
+    progress(`${Math.min(i+chunk,sigs.length)}/${sigs.length} txs · ${state.drops.length.toLocaleString()} drops`,18+(i/sigs.length)*82);
+    renderStats(); if ((i/chunk)%6===0) renderTable();
+    await sleep(delay);
   }
 }
 
@@ -772,7 +860,7 @@ function setSort(s){state.sort=s;state.shown=60;
   $('sortAmount').classList.toggle('on',s==='amount');renderTable();}
 $('moreBtn').addEventListener('click',()=>{state.shown+=120;renderTable();});
 $('exportBtn').addEventListener('click',exportCsv);
-$('indexBtn').addEventListener('click',indexChain);
+$('indexBtn').addEventListener('click',()=>indexChain(true));
 
 /* ---------- server drops ---------- */
 async function loadServerDrops(){
@@ -783,6 +871,7 @@ async function loadServerDrops(){
     if (!Array.isArray(j.drops)) throw 0;
     state.drops = j.drops;
     state.drops.sort((a,b)=>b.ts-a.ts);
+    saveCache();
     renderStats(); renderTable();
     if (j.updatedAt){
       const m = Math.max(0, Math.round((Date.now()-j.updatedAt)/60000));
@@ -799,13 +888,29 @@ setInterval(pollMarket,15000);
 setInterval(pollWallet,60000);
 
 (async () => {
+  // 1 — instant hydrate from the browser cache, if we've been here before
+  const cached = store.get(CACHE_KEY);
+  if (cached && Array.isArray(cached.drops) && cached.drops.length){
+    state.drops = cached.drops;
+    renderStats(); renderTable();
+    const m = Math.round((Date.now()-cached.savedAt)/60000);
+    $('sync').textContent = 'cached '+(m<1?'now':m+'m ago');
+  }
+
+  // 2 — server API is the source of truth when deployed
   const ok = await loadServerDrops();
   if (ok){
-    setInterval(loadServerDrops, 300000); // refresh every 5 min
+    setInterval(loadServerDrops, 300000);
+    return;
+  }
+
+  // 3 — no server: reveal manual controls and populate automatically
+  document.querySelector('.keyrow').classList.add('show');
+  if (state.drops.length){
+    indexChain(false); // incremental: only reads what's new since the cache
   } else {
-    // no server API (running as a bare file) — reveal the manual indexer
-    document.querySelector('.keyrow').classList.add('show');
-    $('emptyMsg').innerHTML = 'Hit <b>INDEX THE CHAIN</b>.<br>Every drop is read live from Solana. Nothing cached, nothing&nbsp;stored.';
+    $('emptyMsg').textContent = 'Reading the chain…';
+    indexChain(true);  // auto-start the full index, resumes if interrupted
   }
 })();
 </script>
