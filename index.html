@@ -494,7 +494,7 @@ const state = {
   price:0, lastPrice:0, solPrice:0,
   ansemMc:null, pumpMc:null,
   walletAnsem:null, walletSol:null,
-  drops:[], sort:'time', query:'', shown:60, indexing:false,
+  drops:[], sort:'time', query:'', shown:60, indexing:false, runId:0,
 };
 
 /* ---------- format ---------- */
@@ -761,11 +761,19 @@ function renderWalletUsd(){
 }
 
 /* ---------- ledger ---------- */
-function progress(t,pct){$('prog').classList.add('show');$('progText').textContent=t;if(pct!=null)$('progBar').style.width=Math.min(100,pct)+'%';}
+function progress(t,pct){
+  $('prog').classList.add('show');$('progText').textContent=t;
+  if(pct!=null)$('progBar').style.width=Math.min(100,pct)+'%';
+  if(!state.drops.length){ const e=$('emptyMsg'); if(e) e.textContent=t; }
+}
 function progressDone(t){progress(t,100);setTimeout(()=>$('prog').classList.remove('show'),3500);}
 
 async function indexChain(full){
-  if (state.indexing) return;
+  const myRun = ++state.runId;              // supersede any running index
+  while (state.indexing){                   // wait for the old run to notice
+    await sleep(150);
+    if (state.runId!==myRun) return;        // someone clicked again after us
+  }
   state.indexing = true; $('indexBtn').disabled = true;
   if (full) state.drops = [];
   const key = $('heliusKey').value.trim();
@@ -779,20 +787,24 @@ async function indexChain(full){
   try{
     if (key){
       let heliusFailed = false;
-      try{ await viaHelius(key,stopAt); }
+      try{ await viaHelius(key,stopAt,myRun); }
       catch(e){ heliusFailed = true; }
-      if (heliusFailed || !state.drops.length){
+      if (state.runId===myRun && (heliusFailed || !state.drops.length)){
         progress('cross-checking via direct RPC…');
-        await viaPublic(stopAt);
+        await viaPublic(stopAt,myRun);
       }
     } else {
-      await viaPublic(stopAt);
+      await viaPublic(stopAt,myRun);
     }
+    if (state.runId!==myRun){ state.indexing=false; return; } // superseded
     state.drops.sort((a,b)=>b.ts-a.ts);
     saveCache();
     progressDone(`${state.drops.length.toLocaleString()} drops indexed`);
     $('sync').textContent = 'synced now';
+    if (!state.drops.length) $('emptyMsg').innerHTML =
+      'No outbound $ANSEM found from the watched wallets.<br>Pin the right wallet: open the token on Solscan → Holders → copy the top non-pool owner, then reload with ?wallet=THATADDRESS';
   }catch(e){
+    if (state.runId!==myRun){ state.indexing=false; return; }
     saveCache();
     progressDone(state.drops.length
       ? `${state.drops.length.toLocaleString()} drops (partial) — retrying is safe, it resumes`
@@ -802,12 +814,13 @@ async function indexChain(full){
   renderStats(); renderTable();
 }
 
-async function viaHelius(key,stopAt){
+async function viaHelius(key,stopAt,run){
   const MAX=120;const found=[];let anyOk=false;
   for (const w of WALLETS){
     try{
       let before='',pages=0,rl=0;
       outer: while(pages<MAX){
+        if (state.runId!==run) return;
         const url = `https://api.helius.xyz/v0/addresses/${w}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
         const r = await fetch(url);
         if (r.status===429){
@@ -838,7 +851,7 @@ async function viaHelius(key,stopAt){
   if (!anyOk) throw new Error('helius unusable');
 }
 
-async function viaPublic(stopAt){
+async function viaPublic(stopAt,run){
   progress('finding token accounts…',2);
   // token accounts across every tracked wallet, plus the wallets themselves —
   // wallet-level signatures catch history from token accounts closed since
@@ -855,6 +868,7 @@ async function viaPublic(stopAt){
   for (const acct of targets){
     let before=null, hitKnown=false, mine=0;
     while (mine<4000 && !hitKnown){
+      if (state.runId!==run) return;
       let page;
       try{ page = await rpcTry('getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]); }
       catch(e){ break; }
@@ -877,6 +891,7 @@ async function viaPublic(stopAt){
   const keyed = !!$('heliusKey').value.trim();
   let chunk = keyed?12:6, delay = keyed?180:350;
   for (let i=0;i<sigs.length;i+=chunk){
+    if (state.runId!==run) return;
     const slice = sigs.slice(i,i+chunk);
     const body = slice.map((sig,n)=>({jsonrpc:'2.0',id:n,method:'getTransaction',
       params:[sig,{encoding:'jsonParsed',maxSupportedTransactionVersion:0}]}));
@@ -1014,13 +1029,22 @@ setInterval(pollWallet,60000);
     return;
   }
 
-  // 3 — no server: reveal manual controls and populate automatically
+  // 3 — no server: reveal manual controls
   document.querySelector('.keyrow').classList.add('show');
+  // restore the key from this browser session so reload-testing isn't painful
+  try{ const k=sessionStorage.getItem('ansem_key'); if(k) $('heliusKey').value=k; }catch(e){}
+  $('heliusKey').addEventListener('input',e=>{ try{ sessionStorage.setItem('ansem_key',e.target.value.trim()); }catch(err){} });
+
+  const hasKey = !!$('heliusKey').value.trim();
   if (state.drops.length){
-    indexChain(false); // incremental: only reads what's new since the cache
-  } else {
+    indexChain(false);            // incremental top-up of the cache — cheap
+  } else if (hasKey){
     $('emptyMsg').textContent = 'Reading the chain…';
-    indexChain(true);  // auto-start the full index, resumes if interrupted
+    indexChain(true);             // auto-start with the saved key
+  } else {
+    $('emptyMsg').innerHTML =
+      'Paste a free <b>Helius</b> key above and hit <b>INDEX THE CHAIN</b>.<br>' +
+      'helius.dev · takes two minutes once — the free public network is too slow for the first full read.';
   }
 })();
 </script>
