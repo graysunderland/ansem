@@ -50,6 +50,9 @@ An optional paste-in Helius key makes it fast; the key never leaves the tab.
 - If $ANSEM volume explodes and the wallet history grows past ~12,000
   transactions, raise `MAX_PAGES` in `api/drops.js`.
 - Donation address and all constants live at the top of each file.
+- Analytics: enable Web Analytics in Vercel (Project → Analytics → Enable).
+  The script tag is already in index.html; visits appear within seconds of
+  the next deploy. Free tier covers 50k events/month.
 - Optional: set env var WALLET_OVERRIDE to pin Ansem's holding wallet and
   skip on-chain discovery (client equivalent: ?wallet=ADDR in the URL or
   the PIN_WALLET const at the top of index.html).
