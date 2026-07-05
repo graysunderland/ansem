@@ -407,7 +407,7 @@ td .tx{color:var(--mute);font-size:12px}
     <div class="wq">
       <div class="v" id="wTotal">—</div>
       <div class="k">Wallet value</div>
-      <div class="s"><a href="https://solscan.io/account/GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52" target="_blank" rel="noopener">GV6U…dC52 ↗</a></div>
+      <div class="s"><a id="wLink" href="https://solscan.io/account/GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52" target="_blank" rel="noopener">GV6U…dC52 ↗</a></div>
     </div>
     <div class="wq">
       <div class="v" id="wAnsem">—</div>
@@ -475,9 +475,14 @@ td .tx{color:var(--mute);font-size:12px}
 <script>
 const MINT   = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
 const PUMP   = 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn';
-const WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
 const DONATE = 'GNpRaykvFa347R9WaGomGbNGGnZxMVQGKCmNTTqiXQhj';
 const SUPPLY = 1_000_000_000;
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+// GV6U is the pump.fun creator-fee wallet; the $ANSEM stash and airdrops live
+// in the holding wallet, which we discover live as the largest human holder.
+const CREATOR_WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
+let MAIN_WALLET = CREATOR_WALLET;          // replaced by discovery
+let WALLETS = [CREATOR_WALLET];            // every wallet we index outbound from
 
 const $ = id => document.getElementById(id);
 const state = {
@@ -660,6 +665,44 @@ function mergeDrops(newDrops){
   state.drops.sort((a,b)=>b.ts-a.ts);
 }
 const knownSigs = () => new Set(state.drops.map(d=>d.sig));
+
+/* ---------- wallet discovery: the largest human holder of the mint ---------- */
+async function discoverWallets(){
+  try{
+    const top = await rpcTry('getTokenLargestAccounts',[MINT]);
+    const tokAccts = (top?.value||[]).slice(0,12).map(v=>({addr:v.address, amt:v.uiAmount||0}));
+    if (!tokAccts.length) return;
+
+    const infos = await rpcTry('getMultipleAccounts',[tokAccts.map(t=>t.addr),{encoding:'jsonParsed'}]);
+    const owners = [];
+    (infos?.value||[]).forEach((a,i)=>{
+      const o = a?.data?.parsed?.info?.owner;
+      if (o) owners.push({owner:o, amt:tokAccts[i].amt});
+    });
+    if (!owners.length) return;
+
+    // a human wallet is owned by the System Program; pool authorities are
+    // program-owned PDAs — that's how we skip the AMM pools
+    const ownerInfos = await rpcTry('getMultipleAccounts',[owners.map(o=>o.owner),{encoding:'jsonParsed'}]);
+    const humans = [];
+    (ownerInfos?.value||[]).forEach((a,i)=>{
+      if (!a || a.owner===SYSTEM_PROGRAM) humans.push(owners[i]);
+    });
+    humans.sort((a,b)=>b.amt-a.amt);
+    if (humans.length){
+      MAIN_WALLET = humans[0].owner;
+      WALLETS = [...new Set([MAIN_WALLET, CREATOR_WALLET])];
+      updateWalletLinks();
+    }
+  }catch(e){}
+}
+function updateWalletLinks(){
+  const el = $('wLink');
+  if (el){
+    el.href = 'https://solscan.io/account/'+MAIN_WALLET;
+    el.textContent = shortAddr(MAIN_WALLET)+' ↗';
+  }
+}
 async function pollWallet(){
   // server API first (key stays server-side, edge-cached)
   try{
@@ -667,6 +710,7 @@ async function pollWallet(){
     if (r.ok){
       const j = await r.json();
       if (j.sol != null){
+        if (j.wallet){ MAIN_WALLET=j.wallet; updateWalletLinks(); }
         state.walletSol = j.sol; state.walletAnsem = j.ansem;
         $('wAnsem').textContent = fmtTok(state.walletAnsem);
         $('wSol').textContent = state.walletSol.toLocaleString('en-US',{maximumFractionDigits:1});
@@ -679,8 +723,8 @@ async function pollWallet(){
   // fallback: direct RPC from the browser (rotating pool)
   try{
     const [bal,tok] = await Promise.all([
-      rpcTry('getBalance',[WALLET]),
-      rpcTry('getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]),
+      rpcTry('getBalance',[MAIN_WALLET]),
+      rpcTry('getTokenAccountsByOwner',[MAIN_WALLET,{mint:MINT},{encoding:'jsonParsed'}]),
     ]);
     state.walletSol = (bal?.value??0)/1e9;
     state.walletAnsem = (tok?.value||[]).reduce((s,a)=>s+(a.account?.data?.parsed?.info?.tokenAmount?.uiAmount||0),0);
@@ -734,56 +778,66 @@ async function indexChain(full){
 }
 
 async function viaHelius(key,stopAt){
-  let before='',pages=0,rl=0;const MAX=120;const found=[];
-  outer: while(pages<MAX){
-    const url = `https://api.helius.xyz/v0/addresses/${WALLET}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
-    const r = await fetch(url);
-    if (r.status===429){
-      if (++rl>6) throw new Error('helius saturated');
-      await sleep(1100*rl); continue;
+  const MAX=120;const found=[];
+  for (const w of WALLETS){
+    let before='',pages=0,rl=0;
+    outer: while(pages<MAX){
+      const url = `https://api.helius.xyz/v0/addresses/${w}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
+      const r = await fetch(url);
+      if (r.status===429){
+        if (++rl>6) throw new Error('helius saturated');
+        await sleep(1100*rl); continue;
+      }
+      if (!r.ok) throw new Error('helius '+r.status);
+      rl=0;
+      const batch = await r.json();
+      if (!batch.length) break;
+      for (const tx of batch){
+        if (stopAt.has(tx.signature)) break outer; // reached what we already have
+        for (const t of (tx.tokenTransfers||[]))
+          if (t.mint===MINT && t.fromUserAccount===w && t.toUserAccount && !WALLETS.includes(t.toUserAccount) && t.tokenAmount>0)
+            found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+      }
+      before = batch[batch.length-1].signature; pages++;
+      mergeDrops(found.splice(0));
+      progress(`${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
+      renderStats(); if (pages%4===0) renderTable();
+      await sleep(120);
     }
-    if (!r.ok) throw new Error('helius '+r.status);
-    rl=0;
-    const batch = await r.json();
-    if (!batch.length) break;
-    for (const tx of batch){
-      if (stopAt.has(tx.signature)) break outer; // reached what we already have
-      for (const t of (tx.tokenTransfers||[]))
-        if (t.mint===MINT && t.fromUserAccount===WALLET && t.toUserAccount && t.toUserAccount!==WALLET && t.tokenAmount>0)
-          found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
-    }
-    before = batch[batch.length-1].signature; pages++;
-    mergeDrops(found.splice(0));
-    progress(`${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
-    renderStats(); if (pages%4===0) renderTable();
-    await sleep(120);
   }
   mergeDrops(found);
 }
 
 async function viaPublic(stopAt){
-  progress('finding token account…',2);
-  const tok = await rpcTry('getTokenAccountsByOwner',[WALLET,{mint:MINT},{encoding:'jsonParsed'}]);
-  const accounts = (tok?.value||[]).map(a=>a.pubkey);
+  progress('finding token accounts…',2);
+  // token accounts across every tracked wallet
+  const accounts = [];
+  for (const w of WALLETS){
+    try{
+      const tok = await rpcTry('getTokenAccountsByOwner',[w,{mint:MINT},{encoding:'jsonParsed'}]);
+      for (const a of (tok?.value||[])) accounts.push(a.pubkey);
+    }catch(e){}
+  }
   if (!accounts.length) throw new Error('no token account');
 
   // collect signatures newest-first, stop early at anything we already hold
   let sigs=[];
   for (const acct of accounts){
-    let before=null, hitKnown=false;
-    while (sigs.length<3000 && !hitKnown){
+    let before=null, hitKnown=false, mine=0;
+    while (mine<4000 && !hitKnown){
       const page = await rpcTry('getSignaturesForAddress',[acct,before?{limit:1000,before}:{limit:1000}]);
       if (!page||!page.length) break;
       for (const s of page){
         if (stopAt.has(s.signature)){ hitKnown=true; break; }
-        if (!s.err) sigs.push(s.signature);
+        if (!s.err){ sigs.push(s.signature); mine++; }
       }
       if (page.length<1000) break;
       before = page[page.length-1].signature;
-      progress(`${sigs.length.toLocaleString()} signatures`,Math.min(18,sigs.length/170));
+      progress(`${sigs.length.toLocaleString()} signatures`,Math.min(18,sigs.length/280));
       await sleep(250);
     }
   }
+  sigs = [...new Set(sigs)];
   if (!sigs.length){ progress('up to date',100); return; }
 
   // fetch transactions: small batches, adaptive pacing, endpoint rotation
@@ -802,9 +856,11 @@ async function viaPublic(stopAt){
       const pre={},post={};
       for (const b of (tx.meta.preTokenBalances||[])) if (b.mint===MINT) pre[b.owner]=b.uiTokenAmount?.uiAmount||0;
       for (const b of (tx.meta.postTokenBalances||[])) if (b.mint===MINT) post[b.owner]=b.uiTokenAmount?.uiAmount||0;
-      if (((post[WALLET]||0)-(pre[WALLET]||0))>=0) continue;
+      // outbound = any tracked wallet's balance dropped in this tx
+      const sent = WALLETS.some(w => ((post[w]||0)-(pre[w]||0)) < 0);
+      if (!sent) continue;
       for (const o of Object.keys(post)){
-        if (o===WALLET) continue;
+        if (WALLETS.includes(o)) continue;
         const d = (post[o]||0)-(pre[o]||0);
         if (d>0) found.push({to:o,amount:d,ts:tx.blockTime||0,sig:slice[n]});
       }
@@ -903,6 +959,10 @@ setInterval(pollMarket,15000);
 setInterval(pollWallet,60000);
 
 (async () => {
+  // 0 — find the actual holding wallet on-chain before anything else
+  await discoverWallets();
+  pollWallet();
+
   // 1 — instant hydrate from the browser cache, if we've been here before
   const cached = store.get(CACHE_KEY);
   if (cached && Array.isArray(cached.drops) && cached.drops.length){

@@ -1,8 +1,9 @@
-// /api/wallet — Ansem's live SOL + $ANSEM balances via Helius RPC.
-// Keeps the key server-side. Cached for 60s at the edge.
+// /api/wallet — Ansem's live SOL + $ANSEM balances, from the discovered
+// holding wallet (the largest human holder of the mint). Cached 60s.
 
-const MINT   = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
-const WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
+import { discoverWallets } from './drops.js';
+
+const MINT = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
 
 async function rpc(endpoint, method, params) {
   const r = await fetch(endpoint, {
@@ -22,9 +23,10 @@ export default async function handler(req, res) {
     : 'https://api.mainnet-beta.solana.com';
 
   try {
+    const { main } = await discoverWallets(endpoint);
     const [bal, tok] = await Promise.all([
-      rpc(endpoint, 'getBalance', [WALLET]),
-      rpc(endpoint, 'getTokenAccountsByOwner', [WALLET, { mint: MINT }, { encoding: 'jsonParsed' }]),
+      rpc(endpoint, 'getBalance', [main]),
+      rpc(endpoint, 'getTokenAccountsByOwner', [main, { mint: MINT }, { encoding: 'jsonParsed' }]),
     ]);
 
     const sol = (bal?.value ?? 0) / 1e9;
@@ -33,7 +35,7 @@ export default async function handler(req, res) {
 
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).json({ sol, ansem, updatedAt: Date.now() });
+    res.status(200).json({ wallet: main, sol, ansem, updatedAt: Date.now() });
   } catch (e) {
     res.status(502).json({ error: 'rpc unavailable' });
   }
