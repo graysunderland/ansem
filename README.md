@@ -50,3 +50,5 @@ An optional paste-in Helius key makes it fast; the key never leaves the tab.
 - If $ANSEM volume explodes and the wallet history grows past ~12,000
   transactions, raise `MAX_PAGES` in `api/drops.js`.
 - Donation address and all constants live at the top of each file.
+- Before launch: replace YOUR-DOMAIN.com in the og:/twitter: meta tags in
+  index.html with your real domain so link previews show the OG card.
