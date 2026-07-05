@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>$ANSEM diagnostics</title>
+<style>
+body{background:#0A0A0A;color:#F4F4F1;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:13px;line-height:1.7;padding:28px;max-width:980px;margin:0 auto}
+h1{font-size:15px;letter-spacing:.2em;margin-bottom:20px}
+input{background:none;border:none;border-bottom:1px solid #333;color:#F4F4F1;font:inherit;padding:8px 0;width:100%;outline:none;margin-bottom:10px}
+input:focus{border-color:#F4F4F1}
+button{background:none;border:1px solid #F4F4F1;color:#F4F4F1;font:inherit;padding:10px 22px;cursor:pointer;letter-spacing:.14em;margin:12px 12px 24px 0}
+button:hover{background:#F4F4F1;color:#0A0A0A}
+#log{white-space:pre-wrap;word-break:break-all;border-top:1px solid #222;padding-top:18px}
+.ok{color:#19C964}.bad{color:#FF3B30}.dim{color:#666}
+</style>
+</head>
+<body>
+<h1>$ANSEM PIPELINE DIAGNOSTICS · v9</h1>
+<input id="key" type="text" placeholder="Helius API key (required)" autocomplete="off" spellcheck="false">
+<input id="wallet" type="text" placeholder="Wallet override (optional — leave empty to auto-discover)" autocomplete="off" spellcheck="false">
+<button id="run">RUN DIAGNOSTICS</button>
+<button id="copy">COPY RESULTS</button>
+<div id="log"></div>
+
+<script>
+const MINT = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
+const CREATOR = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
+const SYSTEM = '11111111111111111111111111111111';
+const logEl = document.getElementById('log');
+let out = [];
+
+function log(msg, cls){
+  out.push(msg);
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  logEl.appendChild(d);
+}
+const ok  = m => log('  PASS  ' + m, 'ok');
+const bad = m => log('  FAIL  ' + m, 'bad');
+const dim = m => log('        ' + m, 'dim');
+const step = m => log('\n[' + m + ']');
+const short = a => a ? a.slice(0,6)+'…'+a.slice(-6) : '?';
+
+async function rpc(ep, method, params){
+  const r = await fetch(ep, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method, params})});
+  const j = await r.json();
+  if (j.error) throw new Error(method+': '+JSON.stringify(j.error));
+  return j.result;
+}
+
+async function run(){
+  out = []; logEl.innerHTML = '';
+  const key = document.getElementById('key').value.trim();
+  const override = document.getElementById('wallet').value.trim();
+  log('$ANSEM diagnostics v9 · ' + new Date().toISOString());
+  log('mint: ' + MINT);
+
+  // 1 — baseline network
+  step('1 · network baseline (DexScreener, no auth)');
+  try{
+    const r = await fetch('https://api.dexscreener.com/latest/dex/tokens/'+MINT);
+    const j = await r.json();
+    const p = (j.pairs||[])[0];
+    p ? ok('reachable · $ANSEM price $'+p.priceUsd) : bad('reachable but no pairs returned');
+  }catch(e){ bad('DexScreener unreachable: '+e.message+' — network/CSP is blocking fetches; open this file in a normal browser tab'); return; }
+
+  // 2 — key validity
+  step('2 · Helius key');
+  if (!key){ bad('no key entered — everything below needs it'); return; }
+  const HRPC = 'https://mainnet.helius-rpc.com/?api-key='+key;
+  try{
+    await rpc(HRPC, 'getHealth', []);
+    ok('key accepted by Helius RPC');
+  }catch(e){ bad('Helius rejected the key: '+e.message); return; }
+
+  // 3 — discovery: top holders
+  step('3 · getTokenLargestAccounts (top holders of the mint)');
+  let holders = [];
+  try{
+    const top = await rpc(HRPC, 'getTokenLargestAccounts', [MINT]);
+    holders = (top?.value||[]).slice(0,10);
+    ok(holders.length + ' token accounts returned');
+  }catch(e){ bad(e.message); }
+
+  // 4 — resolve owners + classify
+  step('4 · owners of those accounts (system-owned = human, program-owned = pool)');
+  let humans = [];
+  try{
+    const infos = await rpc(HRPC, 'getMultipleAccounts', [holders.map(h=>h.address), {encoding:'jsonParsed'}]);
+    const owners = [];
+    (infos?.value||[]).forEach((a,i)=>{
+      const o = a?.data?.parsed?.info?.owner;
+      if (o) owners.push({owner:o, amt:holders[i].uiAmount||0});
+    });
+    const oInfos = await rpc(HRPC, 'getMultipleAccounts', [owners.map(o=>o.owner), {encoding:'jsonParsed'}]);
+    (oInfos?.value||[]).forEach((a,i)=>{
+      const human = !a || a.owner===SYSTEM;
+      dim((human?'HUMAN ':'POOL  ')+' '+short(owners[i].owner)+'  '+(owners[i].amt/1e6).toFixed(2)+'M ANSEM'+(human?'':'  (owner program: '+short(a.owner)+')'));
+      if (human) humans.push(owners[i]);
+    });
+    humans.sort((a,b)=>b.amt-a.amt);
+    humans.length ? ok('largest human holder: '+humans[0].owner+' · '+(humans[0].amt/1e6).toFixed(2)+'M ANSEM')
+                  : bad('no human holders identified in top 10');
+  }catch(e){ bad(e.message); }
+
+  const target = override || (humans[0] && humans[0].owner) || CREATOR;
+  step('5 · target wallet: ' + target + (override ? ' (override)' : ' (discovered)'));
+  try{
+    const [bal, tok] = await Promise.all([
+      rpc(HRPC,'getBalance',[target]),
+      rpc(HRPC,'getTokenAccountsByOwner',[target,{mint:MINT},{encoding:'jsonParsed'}]),
+    ]);
+    const ansem = (tok?.value||[]).reduce((s,a)=>s+(a.account?.data?.parsed?.info?.tokenAmount?.uiAmount||0),0);
+    ok('SOL '+((bal?.value||0)/1e9).toFixed(2)+' · ANSEM '+(ansem/1e6).toFixed(2)+'M · '+(tok?.value||[]).length+' token account(s)');
+  }catch(e){ bad(e.message); }
+
+  // 6 — enhanced API, page 1
+  step('6 · Helius enhanced API, page 1 for target');
+  try{
+    const r = await fetch('https://api.helius.xyz/v0/addresses/'+target+'/transactions?api-key='+key+'&limit=100');
+    log('        HTTP '+r.status);
+    const batch = await r.json();
+    if (!Array.isArray(batch)){ bad('non-array response: '+JSON.stringify(batch).slice(0,300)); }
+    else{
+      ok(batch.length+' transactions on page 1');
+      let mintTransfers=0, outbound=0, sample=null;
+      for (const tx of batch){
+        for (const t of (tx.tokenTransfers||[])){
+          if (t.mint===MINT){
+            mintTransfers++;
+            if (t.fromUserAccount===target && t.toUserAccount && t.toUserAccount!==target && t.tokenAmount>0){
+              outbound++;
+              if (!sample) sample = {to:t.toUserAccount, amount:t.tokenAmount, sig:tx.signature, ts:tx.timestamp};
+            }
+          }
+        }
+      }
+      log('        $ANSEM transfers on page: '+mintTransfers+' · outbound from target: '+outbound);
+      if (sample){
+        ok('FIRST OUTBOUND DROP FOUND → '+short(sample.to)+' · '+(sample.amount/1e3).toFixed(1)+'K ANSEM · '+new Date(sample.ts*1000).toISOString());
+        dim('tx: '+sample.sig);
+        log('\n>>> PIPELINE WORKS against this wallet. If the app still shows nothing, the app is running an old build — hard-refresh / redeploy.', 'ok');
+      } else if (mintTransfers>0){
+        bad('mint transfers present but none outbound on page 1 — drops may be deeper; that is fine, the app paginates. If deeper pages also show none, wrong wallet.');
+      } else {
+        bad('zero $ANSEM transfers in the newest 100 txs of this wallet — likely the WRONG WALLET. Try the override field with the top human holder from step 4, or from Solscan holders.');
+      }
+    }
+  }catch(e){ bad(e.message); }
+
+  // 6b — DEEP SCAN of the $ANSEM token account: page until the first drop
+  step('6b · DEEP SCAN of the $ANSEM token account (up to 30 pages)');
+  try{
+    const tok = await rpc(HRPC,'getTokenAccountsByOwner',[target,{mint:MINT},{encoding:'jsonParsed'}]);
+    const ata = (tok?.value||[])[0]?.pubkey;
+    if (!ata){ bad('target has no $ANSEM token account'); }
+    else{
+      dim('token account: '+ata);
+      let before='', page=0, totalIn=0, totalOut=0, found=null, foundPage=0;
+      while (page<30 && !found){
+        const url='https://api.helius.xyz/v0/addresses/'+ata+'/transactions?api-key='+key+'&limit=100'+(before?('&before='+before):'');
+        const r = await fetch(url);
+        if (r.status===429){ await new Promise(s=>setTimeout(s,1200)); continue; }
+        const batch = await r.json();
+        if (!Array.isArray(batch)){ bad('page '+(page+1)+' non-array: '+JSON.stringify(batch).slice(0,200)); break; }
+        if (!batch.length){ dim('history exhausted at page '+page); break; }
+        for (const tx of batch){
+          for (const t of (tx.tokenTransfers||[])){
+            if (t.mint!==MINT) continue;
+            const fromUs = t.fromUserAccount===target || t.fromTokenAccount===ata;
+            if (fromUs && t.tokenAmount>0){
+              totalOut++;
+              if (!found){ found={t,sig:tx.signature,ts:tx.timestamp}; foundPage=page+1; }
+            } else totalIn++;
+          }
+        }
+        before = batch[batch.length-1].signature; page++;
+        if (page%5===0) dim('…page '+page+' · in '+totalIn+' · out '+totalOut);
+      }
+      log('        scanned '+page+' pages · inbound transfers '+totalIn+' · outbound '+totalOut);
+      if (found){
+        ok('FIRST DROP FOUND on page '+foundPage+' → to '+short(found.t.toUserAccount||found.t.toTokenAccount)+' · '+(found.t.tokenAmount/1e3).toFixed(1)+'K ANSEM · '+new Date(found.ts*1000).toISOString());
+        dim('parser fields — fromUserAccount: '+(found.t.fromUserAccount||'EMPTY')+' · fromTokenAccount: '+(found.t.fromTokenAccount||'EMPTY')+' · toUserAccount: '+(found.t.toUserAccount||'EMPTY'));
+        dim('tx: '+found.sig);
+        log('\n>>> DROPS CONFIRMED ON-CHAIN at page '+foundPage+'. The v9 app reads exactly this. If the app shows nothing, it is not running v9.', 'ok');
+      } else {
+        bad('no outbound in '+page+' pages ('+(page*100)+' txs). Paste this whole log back — that result changes the strategy.');
+      }
+    }
+  }catch(e){ bad(e.message); }
+
+  // 7 — creator wallet sanity, page 1
+  step('7 · creator wallet '+short(CREATOR)+' · enhanced page 1');
+  try{
+    const r = await fetch('https://api.helius.xyz/v0/addresses/'+CREATOR+'/transactions?api-key='+key+'&limit=100');
+    const batch = await r.json();
+    if (!Array.isArray(batch)) bad('non-array: '+JSON.stringify(batch).slice(0,200));
+    else{
+      let mintT=0,outb=0;
+      for (const tx of batch) for (const t of (tx.tokenTransfers||[]))
+        if (t.mint===MINT){ mintT++; if (t.fromUserAccount===CREATOR) outb++; }
+      log('        txs: '+batch.length+' · $ANSEM transfers: '+mintT+' · outbound: '+outb);
+    }
+  }catch(e){ bad(e.message); }
+
+  log('\nDone. Hit COPY RESULTS and paste the whole thing back.');
+}
+
+document.getElementById('run').addEventListener('click', ()=>run().catch(e=>bad('fatal: '+e.message)));
+document.getElementById('copy').addEventListener('click', async ()=>{
+  try{ await navigator.clipboard.writeText(out.join('\n')); alert('copied'); }
+  catch(e){ /* select fallback */ const r=document.createRange(); r.selectNode(logEl); getSelection().removeAllRanges(); getSelection().addRange(r); document.execCommand('copy'); }
+});
+</script>
+</body>
+</html>

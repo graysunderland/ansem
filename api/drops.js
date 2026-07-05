@@ -7,7 +7,7 @@
 const MINT = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
 const CREATOR_WALLET = 'GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52';
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
-const MAX_PAGES = 120;
+const MAX_PAGES = 400;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -65,14 +65,25 @@ export default async function handler(req, res) {
   const seen = new Set();
   const debug = {};
   const started = Date.now();
-  const TIME_BUDGET = 45000;
+  const TIME_BUDGET = 50000;
 
+  // resolve the $ANSEM token accounts — their history is pure $ANSEM movement,
+  // while wallet-level history is buried in creator-fee noise
+  const targets = [];
   for (const w of wallets) {
+    try {
+      const tok = await rpc(endpoint, 'getTokenAccountsByOwner', [w, { mint: MINT }, { encoding: 'jsonParsed' }]);
+      for (const a of (tok?.value || [])) targets.push({ acct: a.pubkey, owner: w });
+    } catch (e) {}
+  }
+
+  const ataSet = new Set(targets.map(t => t.acct));
+  for (const { acct, owner: w } of targets) {
     let before = '', pages = 0, retries = 0;
-    debug[w] = { pages: 0, drops: 0, error: null };
+    debug[w] = { tokenAccount: acct, pages: 0, drops: 0, error: null };
     while (pages < MAX_PAGES && Date.now() - started < TIME_BUDGET) {
       const url =
-        `https://api.helius.xyz/v0/addresses/${w}/transactions` +
+        `https://api.helius.xyz/v0/addresses/${acct}/transactions` +
         `?api-key=${key}&limit=100` + (before ? `&before=${before}` : '');
 
       const r = await fetch(url);
@@ -90,18 +101,15 @@ export default async function handler(req, res) {
 
       for (const tx of batch) {
         for (const t of tx.tokenTransfers || []) {
-          if (
-            t.mint === MINT &&
-            t.fromUserAccount === w &&
-            t.toUserAccount &&
-            !wallets.includes(t.toUserAccount) &&
-            t.tokenAmount > 0
-          ) {
-            const k = tx.signature + '|' + t.toUserAccount;
-            if (!seen.has(k)) {
-              seen.add(k);
-              drops.push({ to: t.toUserAccount, amount: t.tokenAmount, ts: tx.timestamp, sig: tx.signature });
-            }
+          if (t.mint !== MINT || !(t.tokenAmount > 0)) continue;
+          const fromUs = t.fromUserAccount === w || (t.fromTokenAccount && ataSet.has(t.fromTokenAccount));
+          if (!fromUs) continue;
+          const to = t.toUserAccount || t.toTokenAccount;
+          if (!to || wallets.includes(to) || ataSet.has(to)) continue;
+          const k = tx.signature + '|' + to + '|' + t.tokenAmount;
+          if (!seen.has(k)) {
+            seen.add(k);
+            drops.push({ to, amount: t.tokenAmount, ts: tx.timestamp, sig: tx.signature });
           }
         }
       }
@@ -109,7 +117,7 @@ export default async function handler(req, res) {
       before = batch[batch.length - 1].signature;
       pages++;
       debug[w].pages = pages;
-      await sleep(80);
+      await sleep(60);
     }
     debug[w].drops = drops.length;
   }

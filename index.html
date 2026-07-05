@@ -467,12 +467,13 @@ td .tx{color:var(--mute);font-size:12px}
     </svg>
     <span id="donateText">GNpR…XQhj</span>
   </button>
-  <span class="right">Unofficial · read-only · not financial advice</span>
+  <span class="right">v10 · Unofficial · read-only · not financial advice</span>
 </div>
 
 </div><!-- /app -->
 
 <script>
+console.log('[ansem] build v10');
 const MINT   = '9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump';
 const PUMP   = 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn';
 const DONATE = 'GNpRaykvFa347R9WaGomGbNGGnZxMVQGKCmNTTqiXQhj';
@@ -670,8 +671,9 @@ const store = {
 const CACHE_KEY = 'ansem_drops_v1';
 function saveCache(){ store.set(CACHE_KEY,{drops:state.drops,savedAt:Date.now()}); }
 function mergeDrops(newDrops){
-  const seen = new Set(state.drops.map(d=>d.sig+'|'+d.to));
-  for (const d of newDrops) if (!seen.has(d.sig+'|'+d.to)){ state.drops.push(d); seen.add(d.sig+'|'+d.to); }
+  const k = d => d.sig+'|'+d.to+'|'+d.amount;
+  const seen = new Set(state.drops.map(k));
+  for (const d of newDrops) if (!seen.has(k(d))){ state.drops.push(d); seen.add(k(d)); }
   state.drops.sort((a,b)=>b.ts-a.ts);
 }
 const knownSigs = () => new Set(state.drops.map(d=>d.sig));
@@ -815,13 +817,25 @@ async function indexChain(full){
 }
 
 async function viaHelius(key,stopAt,run){
-  const MAX=120;const found=[];let anyOk=false;
+  const MAX=400;const found=[];let anyOk=false;
+  const HRPC = `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  // index the $ANSEM TOKEN ACCOUNTS, not the wallets — the wallets are buried
+  // in fee-claim noise; the token accounts' history is only $ANSEM movement
+  const targets=[];
   for (const w of WALLETS){
+    try{
+      const tok = await rpc(HRPC,'getTokenAccountsByOwner',[w,{mint:MINT},{encoding:'jsonParsed'}]);
+      for (const a of (tok?.value||[])) targets.push({acct:a.pubkey, owner:w});
+    }catch(e){}
+  }
+  if (!targets.length) throw new Error('no token accounts');
+  const ataSet = new Set(targets.map(t=>t.acct));
+  for (const {acct,owner} of targets){
     try{
       let before='',pages=0,rl=0;
       outer: while(pages<MAX){
         if (state.runId!==run) return;
-        const url = `https://api.helius.xyz/v0/addresses/${w}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
+        const url = `https://api.helius.xyz/v0/addresses/${acct}/transactions?api-key=${key}&limit=100`+(before?`&before=${before}`:'');
         const r = await fetch(url);
         if (r.status===429){
           if (++rl>6) throw new Error('helius saturated');
@@ -835,17 +849,24 @@ async function viaHelius(key,stopAt,run){
         if (!batch.length) break;
         for (const tx of batch){
           if (stopAt.has(tx.signature)) break outer; // reached what we already have
-          for (const t of (tx.tokenTransfers||[]))
-            if (t.mint===MINT && t.fromUserAccount===w && t.toUserAccount && !WALLETS.includes(t.toUserAccount) && t.tokenAmount>0)
-              found.push({to:t.toUserAccount,amount:t.tokenAmount,ts:tx.timestamp,sig:tx.signature});
+          for (const t of (tx.tokenTransfers||[])){
+            if (t.mint!==MINT || !(t.tokenAmount>0)) continue;
+            // sender match: by owner, or by token account when the parser
+            // leaves owner fields empty (bulk-sender CPI transfers)
+            const fromUs = t.fromUserAccount===owner || (t.fromTokenAccount && ataSet.has(t.fromTokenAccount));
+            if (!fromUs) continue;
+            const to = t.toUserAccount || t.toTokenAccount;
+            if (!to || WALLETS.includes(to) || ataSet.has(to)) continue;
+            found.push({to, amount:t.tokenAmount, ts:tx.timestamp, sig:tx.signature});
+          }
         }
         before = batch[batch.length-1].signature; pages++;
         mergeDrops(found.splice(0));
-        progress(`${shortAddr(w)} · ${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
-        renderStats(); if (pages%4===0) renderTable();
+        progress(`${shortAddr(owner)} · page ${pages} · ${state.drops.length.toLocaleString()} drops`, (pages/MAX)*100);
+        renderStats(); if (pages%3===0) renderTable();
         await sleep(120);
       }
-    }catch(e){ console.warn('helius path failed for',w,e); }
+    }catch(e){ console.warn('helius path failed for',owner,e); }
   }
   mergeDrops(found);
   if (!anyOk) throw new Error('helius unusable');
