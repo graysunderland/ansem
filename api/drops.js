@@ -124,7 +124,7 @@ export default async function handler(req, res) {
 
   drops.sort((a, b) => b.ts - a.ts);
 
-  res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=86400');
+  res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=3600');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.status(200).json({ updatedAt: Date.now(), wallet: main, wallets, count: drops.length, debug, drops });
 }

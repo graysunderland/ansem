@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     const ansem = (tok?.value || []).reduce(
       (s, a) => s + (a.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0), 0);
 
-    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=300');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).json({ wallet: main, sol, ansem, updatedAt: Date.now() });
   } catch (e) {
